@@ -1,0 +1,101 @@
+#!/usr/bin/env python
+
+from matplotlib import rcParams
+rcParams['numerix'] = 'numpy'
+rcParams['backend'] = 'QtAgg'
+rcParams['interactive'] = 'False'
+import numpy
+from pylab import *
+
+def flag2num(flag):
+    if flag == 'Q':
+        return 0.0
+    if flag == 'C':
+        return 1.0
+    if flag == 'U':
+        return 2.0
+    return 3.0
+    sys.stderr.write("unknown flag %s\n" %flag)
+
+def command2num(com):
+    if com[0] == 'R':
+        return 0.0
+    if com[0] == 'W':
+        return 1.0
+    return 2.0
+    sys.stderr.write("unknown command %s\n" % com)
+
+def plot_data(rw, data, plotnum, style, label, alpha=1):
+    subplot(plotnum)
+    if rw != None:
+        rbs = data[:,1]
+        data = data[numpy.where(rbs == rw)]
+    times = data[:,7]
+    sectors = data[:,4]
+    return plot(times, sectors, style, label=label, alpha=alpha)
+
+converters = {}
+converters[0] = flag2num
+converters[1] = command2num
+
+data = load('ext3.trace', converters=converters)
+sectors = data[:,4]
+ymean = numpy.mean(sectors)
+ystd = numpy.std(sectors) * 1.6
+sectormax = max(sectors)
+ymax = min(sectormax, ymean + ymean * 2)
+yzoommax = min(sectormax, ymean + ystd)
+yzoommin = max(0, ymean - ystd)
+
+flag = data[:,0]
+times = data[:,7]
+xmax = max(times)
+
+completed = numpy.where(flag == 1)
+completed_data = data[completed]
+data = 0
+sectors = 0
+flag = 0
+times = 0
+lines = []
+
+lines += plot_data(1, completed_data, 212, '.', 'Writes')
+lines += plot_data(0, completed_data, 212, '.', 'Reads')
+l, = plot_data(None, completed_data, 212, ':', '_nolegend_', alpha=0.5)
+l.set_zorder(-5)
+a = subplot(212)
+ticks = list(arange(0, ymax, ymax/4))
+ticks.append(ymax)
+a.set_yticks(ticks)
+a.set_yticklabels( [ str(int(x/2048)) for x in ticks ] )
+a.set_ylim(0, ymax)
+title('Disk IO')
+ylabel('Disk offset (MB)')
+xlabel('Time (seconds)')
+
+plot_data(1, completed_data, 211, '.', 'Writes')
+plot_data(0, completed_data, 211, '.', 'Reads')
+l, = plot_data(None, completed_data, 211, ':', '_nolegend_', alpha=0.5)
+l.set_zorder(-5)
+
+a = subplot(211)
+title('Zoom')
+ylabel('Disk offset (MB)')
+sectors = completed_data[:,4]
+zoom = (sectors > yzoommin) & (sectors < yzoommax)
+zoom = completed_data[zoom]
+sectors = zoom[:,4]
+yzoommin = numpy.min(sectors)
+ticks = list(arange(yzoommin, yzoommax, (yzoommax - yzoommin) / 4))
+ticks.append(yzoommax)
+a.set_yticks(ticks)
+a.set_yticklabels( [ str(int(x/2048)) for x in ticks ] )
+a.set_xticks([])
+a.set_xticklabels([])
+a.set_ylim(yzoommin, yzoommax)
+
+labels = [ x.get_label() for x in lines ]
+figlegend(lines, labels, loc=1, shadow=True, numpoints=4)
+savefig('ext3.png')
+show()
+
