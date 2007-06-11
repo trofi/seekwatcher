@@ -2,7 +2,7 @@
 
 from matplotlib import rcParams
 rcParams['numerix'] = 'numpy'
-rcParams['backend'] = 'QtAgg'
+rcParams['backend'] = 'Agg'
 rcParams['interactive'] = 'False'
 import numpy
 from pylab import *
@@ -25,8 +25,7 @@ def command2num(com):
     return 2.0
     sys.stderr.write("unknown command %s\n" % com)
 
-def plot_data(rw, data, plotnum, style, label, alpha=1):
-    subplot(plotnum)
+def plot_data(rw, data, style, label, alpha=1):
     if rw != None:
         rbs = data[:,1]
         data = data[numpy.where(rbs == rw)]
@@ -34,11 +33,92 @@ def plot_data(rw, data, plotnum, style, label, alpha=1):
     sectors = data[:,4]
     return plot(times, sectors, style, label=label, alpha=alpha)
 
+def plot_throughput(rw, data, style, label, alpha=1):
+    def tput_iter(sizes,times):
+        bytes = 0.0
+        sec = None
+        for x in xrange(len(sizes)):
+            size = sizes[x]
+            cur_time = floor(times[x])
+            if sec == None:
+                yield (0.0, 0.0)
+                sec = cur_time
+                continue
+            if sec != cur_time:
+                yield (sec, bytes / (1024 * 1024))
+                bytes = 0
+                sec = cur_time
+            bytes += size
+
+    if rw != None:
+        rbs = data[:,1]
+        data = data[numpy.where(rbs == rw)]
+
+    times = numpy.array([])
+    tput = numpy.array([])
+    for x,y in tput_iter(data[:,5], data[:,7]):
+        times = numpy.append(times, x)
+        tput = numpy.append(tput, y)
+
+    return plot(times, tput, style, label=label, alpha=alpha)
+
+def plot_seek_count(rw, data, style, label, alpha=1):
+    def iter(sectors, times):
+        count = 0.0
+        last = None
+        sec = None
+        for x in xrange(len(sectors)):
+            sector = sectors[x]
+            cur_time = floor(times[x])
+            if sec == None:
+                yield (0.0, 0.0)
+                sec = cur_time
+                continue
+            if sec != cur_time:
+                yield (sec, count)
+                count = 0
+                sec = cur_time
+            if last != None:
+                diff = abs(last - sector)
+                if diff > 128:
+                    count += 1
+            last = sector
+
+    if rw != None:
+        rbs = data[:,1]
+        data = data[numpy.where(rbs == rw)]
+
+    times = numpy.array([])
+    counts = numpy.array([])
+    for x,y in iter(data[:,4], data[:,7]):
+        times = numpy.append(times, x)
+        counts = numpy.append(counts, y)
+
+    return semilogy(times, counts, style, label=label, alpha=alpha)
+
+def plot_seeks(rw, data, style, label, alpha=1):
+    def seek_iter(sectors):
+        last = None
+        for x in sectors:
+            if last != None:
+                yield abs(x - last) / 2
+            else:
+                yield 0
+            last = x
+
+    if rw != None:
+        rbs = data[:,1]
+        data = data[numpy.where(rbs == rw)]
+    times = data[:,7]
+    sectors = data[:,4]
+    seeks = numpy.fromiter(seek_iter(sectors), dtype=float)
+    return semilogy(times, seeks, style, label=label, alpha=alpha)
+
 converters = {}
 converters[0] = flag2num
 converters[1] = command2num
 
-data = load('ext3.trace', converters=converters)
+data = load('test.trace', converters=converters)
 sectors = data[:,4]
 ymean = numpy.mean(sectors)
 ystd = numpy.std(sectors) * 1.6
@@ -59,33 +139,56 @@ flag = 0
 times = 0
 lines = []
 
-lines += plot_data(1, completed_data, 212, '.', 'Writes')
-lines += plot_data(0, completed_data, 212, '.', 'Reads')
-l, = plot_data(None, completed_data, 212, ':', '_nolegend_', alpha=0.5)
-l.set_zorder(-5)
-a = subplot(212)
+a = subplot(414)
+lines += plot_data(1, completed_data, ',', 'Writes')
+lines += plot_data(0, completed_data, ',', 'Reads')
 ticks = list(arange(0, ymax, ymax/4))
 ticks.append(ymax)
 a.set_yticks(ticks)
 a.set_yticklabels( [ str(int(x/2048)) for x in ticks ] )
 a.set_ylim(0, ymax)
+a.set_xlim(0, xmax)
 title('Disk IO')
 ylabel('Disk offset (MB)')
 xlabel('Time (seconds)')
 
-plot_data(1, completed_data, 211, '.', 'Writes')
-plot_data(0, completed_data, 211, '.', 'Reads')
-l, = plot_data(None, completed_data, 211, ':', '_nolegend_', alpha=0.5)
-l.set_zorder(-5)
+a = subplot(413)
+plot_throughput(None, completed_data, 'k-', 'Throughput')
+a.set_xticks([])
+a.set_xticklabels([])
+a.set_xlim(0, xmax)
+title('Throughput')
+ylabel('MB/s')
 
-a = subplot(211)
-title('Zoom')
+a = subplot(412)
+plot_seek_count(None, completed_data, 'r-', 'Seek', alpha=0.5)
+a.set_xticks([])
+a.set_xticklabels([])
+a.set_xlim(0, xmax)
+title('Seek Count')
+ylabel('Seeks / sec')
+
+if False:
+    a = subplot(512)
+    plot_seeks(None, completed_data, 'r-', 'Seek', alpha=0.5)
+    a.set_xticks([])
+    a.set_xticklabels([])
+    a.set_xlim(0, xmax)
+    title('Seeks (logn)')
+    ylabel('Seek Size')
+
+a = subplot(411)
+plot_data(1, completed_data, ',', 'Writes')
+plot_data(0, completed_data, ',', 'Reads')
+
+title('Disk IO (zoom)')
 ylabel('Disk offset (MB)')
 sectors = completed_data[:,4]
 zoom = (sectors > yzoommin) & (sectors < yzoommax)
 zoom = completed_data[zoom]
 sectors = zoom[:,4]
 yzoommin = numpy.min(sectors)
+yzommmax = numpy.max(sectors)
 ticks = list(arange(yzoommin, yzoommax, (yzoommax - yzoommin) / 4))
 ticks.append(yzoommax)
 a.set_yticks(ticks)
@@ -93,9 +196,10 @@ a.set_yticklabels( [ str(int(x/2048)) for x in ticks ] )
 a.set_xticks([])
 a.set_xticklabels([])
 a.set_ylim(yzoommin, yzoommax)
+a.set_xlim(0, xmax)
 
 labels = [ x.get_label() for x in lines ]
 figlegend(lines, labels, loc=1, shadow=True, numpoints=4)
-savefig('ext3.png')
+savefig('test.png')
 show()
 
