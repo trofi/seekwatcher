@@ -1,5 +1,42 @@
 #!/usr/bin/env python
-
+#
+# To use seekwatcher, you need to download matplotlib, and have the numpy
+# python lib installed on your box (this is the default w/many distro
+# matplotlib packages).
+#
+# There are two basic modes for seekwatcher.  The first is to take
+# an existing blktrace file and create a graph.  In this mode the two
+# most important options are:
+#
+# -t (name of the trace file)
+# -o (name of the output png)
+#
+#
+# Example:
+#
+# blktrace -o read_trace -d /dev/sda &
+#
+# run your test
+# kill blktrace
+#
+# seekwatcher -t read_trace -o trace.png
+#
+# Seekwatcher can also start blktrace for you, run a command, kill blktrace
+# off and generate the plot.  -t and -o are still used, but you also send
+# in the program to run and the device to trace.  The trace file is kept,
+# so you can plot it again later with different args.
+#
+# Example:
+#
+# seekwatcher -t read_trace -o trace.png -p "dd if=/dev/sda of=/dev/zero" \
+#       -d /dev/sda
+#
+# -z allows you to change the window used to zoom in on the most common
+# data on the y axis.  Use min:max as numbers in MB where you want to 
+# zoom.
+#
+import sys, os, signal, time
+from optparse import OptionParser
 from matplotlib import rcParams
 rcParams['numerix'] = 'numpy'
 rcParams['backend'] = 'Agg'
@@ -24,6 +61,20 @@ def command2num(com):
         return 1.0
     return 2.0
     sys.stderr.write("unknown command %s\n" % com)
+
+def loaddata(fh,delimiter=None, converters=None):
+
+    def iter(fh, delimiter, converters):
+        if converters is None: converters = {}
+        for i,line in enumerate(fh):
+            row = [converters.get(i,float)(val) for i,val in enumerate(line.split(delimiter))]
+            for x in row:
+                yield x
+
+    X = numpy.fromiter(iter(fh, delimiter, converters), dtype=float)
+    lines = len(X) / 8
+    X.shape = (lines, 8)
+    return X
 
 def plot_data(rw, data, style, label, alpha=1):
     if rw != None:
@@ -96,40 +147,81 @@ def plot_seek_count(rw, data, style, label, alpha=1):
 
     return semilogy(times, counts, style, label=label, alpha=alpha)
 
-def plot_seeks(rw, data, style, label, alpha=1):
-    def seek_iter(sectors):
-        last = None
-        for x in sectors:
-            if last != None:
-                yield abs(x - last) / 2
-            else:
-                yield 0
-            last = x
+def run_blktrace(trace, device):
+    return os.spawnlp(os.P_NOWAIT, "blktrace", "-d", device, "-o", trace)
 
-    if rw != None:
-        rbs = data[:,1]
-        data = data[numpy.where(rbs == rw)]
-    times = data[:,7]
-    sectors = data[:,4]
-    seeks = numpy.fromiter(seek_iter(sectors), dtype=float)
-    return semilogy(times, seeks, style, label=label, alpha=alpha)
+def run_prog(program, trace, device):
+    blktrace_pid = run_blktrace(trace, device)
+    sys.stderr.write("running %s\n" % program)
+    os.system(program)
+    sys.stderr.write("done running %s\n" % program)
+    os.kill(blktrace_pid, signal.SIGTERM)
+    pid, err = os.wait()
+    if err:
+        sys.stderr.write("exit due to blktrace failure %d\n", err)
+        exit(1)
+    sys.stderr.write("blktrace done\n")
+
+def run_blkparse(trace, converters):
+    p = os.popen('blkparse -q -i ' + trace +
+                 ' -f "%a %d %M %m %S %N %s %5T.%9t\n" | grep -v "^Input file"')
+    data = loaddata(p, converters=converters)
+    return data
+
+usage = "usage: %prog [options]"
+parser = OptionParser(usage=usage)
+parser.add_option("-d", "--device", help="Device for blktrace", default="")
+parser.add_option("-z", "--zoom", help="Zoom range min:max (in MB)", default="")
+parser.add_option("-x", "--xzoom", help="Time range min:max (seconds)",
+                default="")
+parser.add_option("-t", "--trace", help="blktrace file", default="")
+parser.add_option("-o", "--output", help="output file", default="trace.png")
+parser.add_option("-p", "--prog", help="exec program", default="")
+
+(options,args) = parser.parse_args()
 
 converters = {}
 converters[0] = flag2num
 converters[1] = command2num
 
-data = load('test.trace', converters=converters)
+if options.prog:
+    if not options.trace or not options.device:
+        sys.stderr.write("blktrace output file or device not specified\n")
+        sys.exit(1)
+    run_prog(options.prog, options.trace, options.device)
+
+if options.trace:
+    data = run_blkparse(options.trace, converters)
+
 sectors = data[:,4]
 ymean = numpy.mean(sectors)
 ystd = numpy.std(sectors) * 1.6
 sectormax = max(sectors)
 ymax = min(sectormax, ymean + ymean * 2)
-yzoommax = min(sectormax, ymean + ystd)
-yzoommin = max(0, ymean - ystd)
+
+if options.zoom:
+    if ':' in options.zoom:
+        words = options.zoom.split(':')
+        yzoommin = max(0, float(words[0]) * 2048)
+        yzoommax = min(sectormax, float(words[1]) * 2048)
+        defmin = max(0, ymean - ystd)
+        defmax = min(sectormax, ymean + ystd)
+        print "yzoommin %d max %d, defaults %d %d" % (yzoommin, yzoommax, defmin, defmax)
+else:
+    yzoommin = max(0, ymean - ystd)
+    yzoommax = min(sectormax, ymean + ystd)
 
 flag = data[:,0]
 times = data[:,7]
+xmin = min(times)
 xmax = max(times)
+
+if options.xzoom:
+    words = [ float(x) for x in options.xzoom.split(':') ]
+    if words[0] != 0:
+        xmin = words[0]
+    if words[1] != 0:
+        xmax = words[1]
 
 completed = numpy.where(flag == 1)
 completed_data = data[completed]
@@ -147,7 +239,7 @@ ticks.append(ymax)
 a.set_yticks(ticks)
 a.set_yticklabels( [ str(int(x/2048)) for x in ticks ] )
 a.set_ylim(0, ymax)
-a.set_xlim(0, xmax)
+a.set_xlim(xmin, xmax)
 title('Disk IO')
 ylabel('Disk offset (MB)')
 xlabel('Time (seconds)')
@@ -156,7 +248,7 @@ a = subplot(413)
 plot_throughput(None, completed_data, 'k-', 'Throughput')
 a.set_xticks([])
 a.set_xticklabels([])
-a.set_xlim(0, xmax)
+a.set_xlim(xmin, xmax)
 title('Throughput')
 ylabel('MB/s')
 
@@ -164,18 +256,9 @@ a = subplot(412)
 plot_seek_count(None, completed_data, 'r-', 'Seek', alpha=0.5)
 a.set_xticks([])
 a.set_xticklabels([])
-a.set_xlim(0, xmax)
+a.set_xlim(xmin, xmax)
 title('Seek Count')
 ylabel('Seeks / sec')
-
-if False:
-    a = subplot(512)
-    plot_seeks(None, completed_data, 'r-', 'Seek', alpha=0.5)
-    a.set_xticks([])
-    a.set_xticklabels([])
-    a.set_xlim(0, xmax)
-    title('Seeks (logn)')
-    ylabel('Seek Size')
 
 a = subplot(411)
 plot_data(1, completed_data, ',', 'Writes')
@@ -196,10 +279,11 @@ a.set_yticklabels( [ str(int(x/2048)) for x in ticks ] )
 a.set_xticks([])
 a.set_xticklabels([])
 a.set_ylim(yzoommin, yzoommax)
-a.set_xlim(0, xmax)
+a.set_xlim(xmin, xmax)
 
 labels = [ x.get_label() for x in lines ]
 figlegend(lines, labels, loc=1, shadow=True, numpoints=4)
-savefig('test.png')
+subplots_adjust(hspace=0.6)
+savefig(options.output, dpi=120)
 show()
 
