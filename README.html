@@ -1,0 +1,75 @@
+<html>
+<h3>Seekwatcher</h3>
+<p>Seekwatcher generates graphs from blktrace runs to help visualize IO
+patterns and performance.  It can plot multiple blktrace runs together,
+making it easy to compare the differences between different benchmark runs.</p>
+
+<h3>Examples:</h3>
+<a href=http://oss.oracle.com/~mason/seekwatcher/ext3.compilebench.20.png>Ext3 creating 20 copies of the Linux kernel sources</a><p>
+
+<a href=http://oss.oracle.com/~mason/seekwatcher/ext3_vs_xfs.png>Ext3 vs XFS creating 20 copies of the Linux kernel sources</a><p>
+
+<h3>Installation</h3>
+<p>Seekwatcher uses <a href=http://matplotlib.sourceforge.net>matplotlib</a>
+to generate graphs, and most distros have a package for this.  You'll also need
+to install python and the numpy module.  It is common for the matplotlib
+packages to depend on numpy, so installing a distro's matplotlib should get you
+what you need.<p>
+
+<p>Once those are setup, just copy the seekwatcher script to a bin directory
+and make it executable.</p>
+
+<h3>Running Seekwatcher</h3>
+<p>There are two basic ways to run seekwatcher.  It can either generate
+graphs from an existing blktrace run, or start blktrace and run a program for
+you.  If seekwatcher starts and stops blktrace, the trace runs are kept so
+they can be graphed again later.</p>
+
+<p>Examples:</p>
+
+<p>This will start blktrace on /dev/sda6, run find / > /dev/null, save the
+blktrace output to find.trace and save the graph to find.png.
+</p>
+<pre>
+seekwatcher -t find.trace -o find.png -p 'find / > /dev/null' -d /dev/sda6
+</pre>
+
+<p>To regenerate the graph from the saved trace file:<p>
+<pre>seekwatcher -t find.trace -o find.png</pre>
+
+<p>To compare multiple traces, use the -t flag multiple times.  Providing a
+corresponding -l flag for each trace will create labels on the graphs.<p>
+
+<pre>
+seekwatcher -t ext3.trace -t xfs.trace -l ext3 -l xfs -o ext3_vs_xfs.png
+</pre>
+
+<p>Seekwatcher creates 3 graphs by default: a plot of each sector read
+or written, the number of seeks per second, and the throughput per second
+during the run.  Sometimes the plot of each sector can be difficult to read,
+especially when comparing two runs with very different IO patterns. 
+<b>seekwatcher --no-io-graph</b> will disable this plot.  Another option
+is to use <b>seekwatcher --zoom start:end</b> to specify the range on the yaxis
+you want included in the graph.  The range is specified in MB, and using
+a range of 0:0 will turn off seekwatcher's attempt at autoscaling the plot.</p>
+
+<pre>
+seekwatcher -t ext3.trace -z 10000:20000 -o ext3.png
+seekwatcher -t ext3.trace -z 0:0 -o ext3-no-zoom.png
+</pre>
+
+<p>You can change the plot type used in the IO graph with --io-graph-dots.
+Matplotlib gives a <a href=http://matplotlib.sourceforge.net/matplotlib.pylab.html#-plot>long list of choices</a>.  You might try '-' (solid line) or
+',' (pixels):<p>
+<pre>
+seekwatcher -t ext3.trace --io-graph-dots=,
+</pre>
+
+<h3>Controlling Output</h3>
+<p>By default, seekwatcher saves the graph into a file called trace.png.
+seekwatcher -o filename can be used to save it to a different file.  The
+extension specified controls what type of file is created, choices include
+.png, .jpg, .eps, and .svg.  The resolution used can be controlled with
+--dpi num.  By default, seekwatcher uses a 8x6 pagesize and a dpi of 120.</p>
+
+</html>
