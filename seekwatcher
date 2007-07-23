@@ -38,6 +38,7 @@
 import sys, os, signal, time
 from optparse import OptionParser
 from matplotlib import rcParams
+from matplotlib.font_manager import fontManager, FontProperties
 rcParams['numerix'] = 'numpy'
 rcParams['backend'] = 'Agg'
 rcParams['interactive'] = 'False'
@@ -72,19 +73,19 @@ def loaddata(fh,delimiter=None, converters=None):
                 yield x
 
     X = numpy.fromiter(iter(fh, delimiter, converters), dtype=float)
-    lines = len(X) / 8
-    X.shape = (lines, 8)
     return X
 
-def plot_data(rw, data, style, label, alpha=1):
+def plot_data(ax, rw, data, style, label, alpha=1):
     if rw != None:
         rbs = data[:,1]
         data = data[numpy.where(rbs == rw)]
     times = data[:,7]
     sectors = data[:,4]
-    return plot(times, sectors, style, label=label, alpha=alpha)
+    if len(times) > 0:
+        return ax.plot(times, sectors, style, label=label, alpha=alpha)
+    return []
 
-def plot_throughput(rw, data, style, label, alpha=1):
+def plot_throughput(ax, rw, data, style, label, alpha=1):
     def tput_iter(sizes,times):
         bytes = 0.0
         sec = None
@@ -111,9 +112,9 @@ def plot_throughput(rw, data, style, label, alpha=1):
         times = numpy.append(times, x)
         tput = numpy.append(tput, y)
 
-    return plot(times, tput, style, label=label, alpha=alpha)
+    return ax.plot(times, tput, style, label=label, alpha=alpha)
 
-def plot_seek_count(rw, data, style, label, alpha=1):
+def plot_seek_count(ax, rw, data, style, label, alpha=1):
     def iter(sectors, times):
         count = 0.0
         last = None
@@ -145,20 +146,20 @@ def plot_seek_count(rw, data, style, label, alpha=1):
         times = numpy.append(times, x)
         counts = numpy.append(counts, y)
 
-    return semilogy(times, counts, style, label=label, alpha=alpha)
+    return ax.plot(times, counts, style, label=label, alpha=alpha)
 
 def run_blktrace(trace, device):
     return os.spawnlp(os.P_NOWAIT, "blktrace", "-d", device, "-o", trace)
 
 def run_prog(program, trace, device):
     blktrace_pid = run_blktrace(trace, device)
-    sys.stderr.write("running %s\n" % program)
+    sys.stderr.write("running :%s:\n" % program)
     os.system(program)
     sys.stderr.write("done running %s\n" % program)
     os.kill(blktrace_pid, signal.SIGTERM)
     pid, err = os.wait()
     if err:
-        sys.stderr.write("exit due to blktrace failure %d\n", err)
+        sys.stderr.write("exit due to blktrace failure %d\n" % err)
         exit(1)
     sys.stderr.write("blktrace done\n")
 
@@ -168,15 +169,30 @@ def run_blkparse(trace, converters):
     data = loaddata(p, converters=converters)
     return data
 
+def shapeit(X):
+    lines = len(X) / 8
+    X.shape = (lines, 8)
+
+def getlabel(i):
+    if i < len(options.label):
+        return options.label[i]
+    return ""
+
 usage = "usage: %prog [options]"
 parser = OptionParser(usage=usage)
 parser.add_option("-d", "--device", help="Device for blktrace", default="")
 parser.add_option("-z", "--zoom", help="Zoom range min:max (in MB)", default="")
 parser.add_option("-x", "--xzoom", help="Time range min:max (seconds)",
                 default="")
-parser.add_option("-t", "--trace", help="blktrace file", default="")
+parser.add_option("-t", "--trace", help="blktrace file", default=[],
+                  action="append")
 parser.add_option("-o", "--output", help="output file", default="trace.png")
 parser.add_option("-p", "--prog", help="exec program", default="")
+parser.add_option("-l", "--label", help="label", default=[], action="append")
+parser.add_option("", "--dpi", help="dpi", default=120)
+parser.add_option("", "--disk-io-dots", help="Disk IO dot style", default='.')
+parser.add_option("-I", "--no-io-graph", help="Don't create an IO graph",
+                  default=False, action="store_true")
 
 (options,args) = parser.parse_args()
 
@@ -188,30 +204,59 @@ if options.prog:
     if not options.trace or not options.device:
         sys.stderr.write("blktrace output file or device not specified\n")
         sys.exit(1)
-    run_prog(options.prog, options.trace, options.device)
+    run_prog(options.prog, options.trace[0], options.device)
 
-if options.trace:
-    data = run_blkparse(options.trace, converters)
+data = numpy.array([])
+runs = []
+for x in options.trace:
+    run = run_blkparse(x, converters)
+    runs.append(run)
+    data = numpy.append(data, run)
 
+shapeit(data)
+for x in runs:
+    shapeit(x)
+
+# try to drop out the least common data points by creating
+# a historgram of the sectors seen.
 sectors = data[:,4]
 ymean = numpy.mean(sectors)
-ystd = numpy.std(sectors) * 1.6
 sectormax = max(sectors)
-ymax = min(sectormax, ymean + ymean * 2)
 
-if options.zoom:
-    if ':' in options.zoom:
-        words = options.zoom.split(':')
-        yzoommin = max(0, float(words[0]) * 2048)
-        yzoommax = min(sectormax, float(words[1]) * 2048)
-        defmin = max(0, ymean - ystd)
-        defmax = min(sectormax, ymean + ystd)
-        print "yzoommin %d max %d, defaults %d %d" % (yzoommin, yzoommax, defmin, defmax)
+if not options.zoom or ':' not in options.zoom:
+    hist, bound = numpy.histogram(sectors, bins=10)
+    m = numpy.max(hist)
+    bound = list(bound)
+    bound.append(sectormax)
+
+    for x in xrange(len(hist)):
+        if m == hist[x]:
+            maxi = x
+    # hist[maxi] is the most common bucket.  walk toward it from the
+    # min and max values looking for the first buckets that have some
+    # significant portion of the data
+    #
+    yzoommin = bound[maxi]
+    for x in xrange(0, maxi):
+        if hist[x] > hist[maxi] * .15:
+            yzoommin = bound[x]
+            break
+
+    yzoommax = bound[maxi + 1]
+    for x in xrange(len(hist) - 1, maxi, -1):
+        if hist[x] > hist[maxi] * .15:
+            yzoommax = bound[x + 1]
+            break
+
 else:
-    yzoommin = max(0, ymean - ystd)
-    yzoommax = min(sectormax, ymean + ystd)
+    words = options.zoom.split(':')
+    yzoommin = max(0, float(words[0]) * 2048)
+    if float(words[1]) == 0:
+        yzoommax = sectormax
+    else:
+        yzoommax = min(sectormax, float(words[1]) * 2048)
 
-flag = data[:,0]
+flags = [ x[:,0] for x in runs ]
 times = data[:,7]
 xmin = min(times)
 xmax = max(times)
@@ -223,71 +268,117 @@ if options.xzoom:
     if words[1] != 0:
         xmax = words[1]
 
-completed = numpy.where(flag == 1)
-completed_data = data[completed]
-data = 0
+completed_data = []
+for i in xrange(len(runs)):
+    completed = numpy.where(flags[i] == 1)
+    completed_data.append(runs[i][completed])
+
 sectors = 0
-flag = 0
+flags = 0
+completed = 0
 times = 0
-lines = []
 
-a = subplot(414)
-lines += plot_data(1, completed_data, ',', 'Writes')
-lines += plot_data(0, completed_data, ',', 'Reads')
-ticks = list(arange(0, ymax, ymax/4))
-ticks.append(ymax)
-a.set_yticks(ticks)
-a.set_yticklabels( [ str(int(x/2048)) for x in ticks ] )
-a.set_ylim(0, ymax)
-a.set_xlim(xmin, xmax)
-title('Disk IO')
-ylabel('Disk offset (MB)')
-xlabel('Time (seconds)')
+if options.no_io_graph:
+    total_graphs = 2
+else:
+    total_graphs = 3
 
-a = subplot(413)
-plot_throughput(None, completed_data, 'k-', 'Throughput')
-a.set_xticks([])
-a.set_xticklabels([])
-a.set_xlim(xmin, xmax)
+f = figure(figsize=(8,6))
+
+# Throughput goes at the botoom
+a = subplot(total_graphs, 1, total_graphs)
+for i in xrange(len(completed_data)):
+    label = getlabel(i)
+    plot_throughput(a, None, completed_data[i], '-', label)
+
+# cut down the number of yticks to something more reasonable
 ticks = a.get_yticks()
 ticks = list(arange(0, ticks[-1] + ticks[-1]/4 -1, ticks[-1]/4))
 a.set_yticks(ticks)
 a.set_yticklabels( [ str(int(x)) for x in ticks ])
-title('Throughput')
-ylabel('MB/s')
+a.set_title('Throughput')
+a.set_ylabel('MB/s')
 
-a = subplot(412)
-plot_seek_count(None, completed_data, 'r-', 'Seek', alpha=0.5)
-a.set_xticks([])
-a.set_xticklabels([])
-a.set_xlim(xmin, xmax)
-title('Seek Count')
-ylabel('Seeks / sec')
+# the bottom graph gets xticks, set it here
+a.set_xlabel('Time (seconds)')
+if options.label:
+    a.legend(loc=(1.01, 0.5), shadow=True, pad=0.5, numpoints=2,
+                  handletextsep = 0.005,
+                  labelsep = 0.01,
+                  prop=FontProperties(size='x-small') )
 
-a = subplot(411)
-plot_data(1, completed_data, ',', 'Writes')
-plot_data(0, completed_data, ',', 'Reads')
+# next is the seek count graph
+a = subplot(total_graphs, 1, total_graphs - 1)
+for i in xrange(len(completed_data)):
+    label = getlabel(i)
+    plot_seek_count(a, None, completed_data[i], '-', label)
 
-title('Disk IO (zoom)')
-ylabel('Disk offset (MB)')
-sectors = completed_data[:,4]
-zoom = (sectors > yzoommin) & (sectors < yzoommax)
-zoom = completed_data[zoom]
-sectors = zoom[:,4]
-yzoommin = numpy.min(sectors)
-yzommmax = numpy.max(sectors)
-ticks = list(arange(yzoommin, yzoommax, (yzoommax - yzoommin) / 4))
-ticks.append(yzoommax)
+# cut down the number of yticks to something more reasonable
+ticks = a.get_yticks()
+ticks = list(arange(0, ticks[-1] + ticks[-1]/4 -1, ticks[-1]/4))
 a.set_yticks(ticks)
-a.set_yticklabels( [ str(int(x/2048)) for x in ticks ] )
-a.set_xticks([])
-a.set_xticklabels([])
-a.set_ylim(yzoommin, yzoommax)
-a.set_xlim(xmin, xmax)
+a.set_yticklabels( [ str(int(x)) for x in ticks ])
 
-labels = [ x.get_label() for x in lines ]
-figlegend(lines, labels, loc=1, shadow=True, numpoints=4)
-subplots_adjust(hspace=0.6)
-savefig(options.output, dpi=120)
+a.set_title('Seek Count')
+a.set_ylabel('Seeks / sec')
+if options.label:
+    a.legend(loc=(1.01, 0.5), shadow=True, pad=0.5, numpoints=2,
+                  handletextsep = 0.005,
+                  labelsep = 0.01,
+                  prop=FontProperties(size='x-small') )
+
+# and the optional IO graph
+if not options.no_io_graph:
+    a = subplot(total_graphs, 1, total_graphs - 2)
+    for i in xrange(len(completed_data)):
+        label = getlabel(i)
+        plot_data(a, 0, completed_data[i], options.disk_io_dots,
+                  label + " Read")
+        plot_data(a, 1, completed_data[i], options.disk_io_dots,
+                  label + " Write")
+
+    a.set_title('Disk IO')
+    a.set_ylabel('Disk offset (MB)')
+    flag = data[:,0]
+    completed = numpy.where(flag == 1)
+    completed_data = data[completed]
+    sectors = completed_data[:,4]
+    zoom = (sectors > yzoommin) & (sectors < yzoommax)
+    zoom = completed_data[zoom]
+    sectors = zoom[:,4]
+    yzoommin = numpy.min(sectors)
+    yzommmax = numpy.max(sectors)
+    ticks = list(arange(yzoommin, yzoommax, (yzoommax - yzoommin) / 4))
+    ticks.append(yzoommax)
+    a.set_yticks(ticks)
+    a.set_yticklabels( [ str(int(x/2048)) for x in ticks ] )
+    a.set_ylim(yzoommin, yzoommax)
+    a.legend(loc=(1.01, 0.5), shadow=True, pad=0.3, numpoints=1,
+                  handletextsep = 0.005,
+                  labelsep = 0.01,
+                  prop=FontProperties(size='x-small') )
+
+# squeeze the graphs over to the left a bit to make room for the
+# legends
+#
+subplots_adjust(right = 0.8, hspace=0.3)
+
+# finally, some global bits for each subplot
+for x in xrange(1, total_graphs + 1):
+    a = subplot(total_graphs, 1, x)
+
+    # turn off the xtick labels on the graphs above the bottom
+    if x < total_graphs:
+        a.set_xticklabels([])
+
+    # set the xlimits to something sane
+    a.set_xlim(xmin, xmax)
+
+    # create dashed lines for each ytick
+    ticks = a.get_yticks()
+    for y in ticks[1:]:
+        a.hlines(y, xmin, xmax, ls='--', alpha=0.5)
+
+savefig(options.output, dpi=options.dpi, orientation='landscape')
 show()
 
