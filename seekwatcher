@@ -86,19 +86,31 @@ def plot_data(ax, rw, data, style, label, alpha=1):
         return ax.plot(times, sectors, style, label=label, alpha=alpha)
     return []
 
+def add_roll(roll, max, num):
+    if len(roll) == max:
+        del roll[0]
+    roll.append(num)
+    total = 0.0
+    for x in roll:
+        total += x
+    return total / len(roll)
+
 def plot_throughput(ax, rw, data, style, label, alpha=1):
     def tput_iter(sizes,times):
         bytes = 0.0
         sec = None
+        roll = []
         for x in xrange(len(sizes)):
             size = sizes[x]
             cur_time = floor(times[x])
             if sec == None:
-                yield (0.0, 0.0)
+                avg = add_roll(roll, options.rolling_avg, 0.0)
+                yield (0.0, avg)
                 sec = cur_time
                 continue
             if sec != cur_time:
-                yield (sec, bytes / (1024 * 1024))
+                avg = add_roll(roll, options.rolling_avg, bytes)
+                yield (sec, avg / (1024 * 1024))
                 bytes = 0
                 sec = cur_time
             bytes += size
@@ -120,15 +132,18 @@ def plot_seek_count(ax, rw, data, style, label, alpha=1):
         count = 0.0
         last = None
         sec = None
+        roll = []
         for x in xrange(len(sectors)):
             sector = sectors[x]
             cur_time = floor(times[x])
             if sec == None:
-                yield (0.0, 0.0)
+                avg = add_roll(roll, options.rolling_avg, 0.0)
+                yield (0.0, avg)
                 sec = cur_time
                 continue
             if sec != cur_time:
-                yield (sec, count)
+                avg = add_roll(roll, options.rolling_avg, count)
+                yield (sec, avg)
                 count = 0
                 sec = cur_time
             if last != None:
@@ -194,8 +209,10 @@ parser.add_option("", "--dpi", help="dpi", default=120)
 parser.add_option("", "--io-graph-dots", help="Disk IO dot style", default='.')
 parser.add_option("-I", "--no-io-graph", help="Don't create an IO graph",
                   default=False, action="store_true")
+parser.add_option("-r", "--rolling-avg", help="Rolling average for seeks and throughput (seconds, def=5)", default=5)
 
 (options,args) = parser.parse_args()
+options.rolling_avg = int(options.rolling_avg)
 
 if not options.trace:
     parser.print_help()
