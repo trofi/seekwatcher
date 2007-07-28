@@ -16,14 +16,17 @@ to install python and the numpy module.  It is common for the matplotlib
 packages to depend on numpy, so installing a distro's matplotlib should get you
 what you need.<p>
 
+<p>seekwatcher --movie uses mencoder to create mpg files, but it also
+leaves around all the .pngs so you can use your own favorite program.</p>
+
 <p>Once those are setup, just copy the seekwatcher script to a bin directory
 and make it executable.</p>
 
 <h3>Running Seekwatcher</h3>
-<p>There are two basic ways to run seekwatcher.  It can either generate
-graphs from an existing blktrace run, or start blktrace and run a program for
-you.  If seekwatcher starts and stops blktrace, the trace runs are kept so
-they can be graphed again later.</p>
+<p>There are three basic ways to run seekwatcher.  It can either generate
+graphs from an existing blktrace run, start blktrace and run a program for
+you, or make a series of pngs from a single trace.  If seekwatcher starts and
+stops blktrace, the trace runs are kept so they can be graphed again later.</p>
 
 <p>Examples:</p>
 
@@ -42,6 +45,19 @@ corresponding -l flag for each trace will create labels on the graphs.<p>
 
 <pre>
 seekwatcher -t ext3.trace -t xfs.trace -l ext3 -l xfs -o ext3_vs_xfs.png
+</pre>
+
+<p>Finally, you can also make a series of images (and mpg) of the IO generated
+by a given run.  For these images, a disk is simulated as a grid of x,y
+coordinates and every sector read/written is plotted with a black square.
+Squares fade as the IO ages, blanking out after 10 frames.</p>
+
+<p>To create an animation from ext3.trace and store the resulting png
+files in some_dir/ext3-00000N.png (N is replaced by the frame number).
+mencoder is run to create some_dir/ext3.mpg based on the images:</p>
+
+<pre>
+seekwatcher -t ext3.trace -o some_dir/ext3.png --movie
 </pre>
 
 <p>Seekwatcher creates 3 graphs by default: a plot of each sector read
@@ -64,6 +80,12 @@ Matplotlib gives a <a href=http://matplotlib.sourceforge.net/matplotlib.pylab.ht
 <pre>
 seekwatcher -t ext3.trace --io-graph-dots=,
 </pre>
+
+<p>Seekwatcher uses a rolling average of the seek counts and throughput
+values to make graphs smoother.  You can control the number of seconds
+rolled together (by default total trace time / 25) with
+<b>seekwatcher --rolling-avg</b></p>
+
 
 <h3>Controlling Output</h3>
 <p>By default, seekwatcher saves the graph into a file called trace.png.

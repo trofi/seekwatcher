@@ -76,6 +76,96 @@ def loaddata(fh,delimiter=None, converters=None):
     X = numpy.fromiter(iter(fh, delimiter, converters), dtype=float)
     return X
 
+def data_movie(data):
+    def xycalc(sector):
+        if sector < yzoommin or sector > yzoommax:
+            return None
+        range = yzoommax - yzoommin
+        scale = range / (300.0 * 300.0)
+        sector = sector - yzoommin
+        if scale > 1:
+            sector = sector / scale
+        yval = sector / 300
+        xval = sector % 300
+        return (xval, yval)
+
+    def add_frame(prev, ins, max):
+        if len(prev) > max:
+            del prev[0]
+        prev.append(ins)
+        
+    total_secs = xmax - xmin
+    movie_length = int(options.movie_length)
+    movie_fps = int(options.movie_frames)
+    total_frames = movie_length * movie_fps
+    print "total frames is %d\n" % total_frames
+    secs_per_frame = max(1, total_secs / total_frames)
+    start_second = xmin
+
+    times = data[:,7]
+    figindex = 0
+
+    fname, fname_ext = os.path.splitext(options.output)
+    i = 0
+    prev = []
+    f = figure(figsize=(8,8))
+    a = subplot(111)
+
+    a.set_xticklabels([])
+    a.set_yticklabels([])
+    a.set_xlim(0, 300)
+    a.set_ylim(0, 300)
+    hold(False)
+    datai = 0
+    datalen = len(data)
+
+    while i < total_frames and datai < datalen:
+        start = start_second + i * secs_per_frame
+        i += 1
+        end = start + secs_per_frame
+        if datai >= datalen or data[datai][7] > xmax:
+            break
+        print "start %d secs end %d secs frame %d" % (start, end, figindex)
+        xvals = []
+        yvals = []
+        while datai < datalen and data[datai][7] < end:
+            row = data[datai]
+            time = row[7]
+            if time < start:
+                continue
+            datai += 1
+            sector = row[4]
+            rbs = row[1]
+            xy = xycalc(sector)
+            if not xy:
+                continue
+            xvals.append(xy[0])
+            yvals.append(xy[1])
+        if not xvals:
+            continue
+        add_frame(prev, (xvals, yvals), 10)
+        alpha = 1.0
+        hold(False)
+        for x in xrange(len(prev)):
+            vals = prev[x]
+            if x == len(prev) - 1:
+                alpha = 0
+            else:
+                alpha -= .1
+            color = "%.2f" % alpha
+            a.plot(vals[0], vals[1], 's', color=color, mfc=color,
+                   mec=color, alpha=alpha)
+            hold(True)
+        a.set_xticklabels([])
+        a.set_yticklabels([])
+        a.set_xlim(0, 300)
+        a.set_ylim(0, 300)
+        f.savefig("%s-%.6d%s" % (fname, figindex, fname_ext), dpi=80)
+        figindex += 1
+    hold(True)
+
+    os.system("mencoder mf://%s*.png -mf type=png:fps=%d -of mpeg -ovc lavc -lavcopts vcodec=mpeg1video -oac copy -o %s.mpg" % (fname, movie_fps, fname))
+
 def plot_data(ax, rw, data, style, label, alpha=1):
     if rw != None:
         rbs = data[:,1]
@@ -209,10 +299,15 @@ parser.add_option("", "--dpi", help="dpi", default=120)
 parser.add_option("", "--io-graph-dots", help="Disk IO dot style", default='.')
 parser.add_option("-I", "--no-io-graph", help="Don't create an IO graph",
                   default=False, action="store_true")
-parser.add_option("-r", "--rolling-avg", help="Rolling average for seeks and throughput (seconds, def=5)", default=5)
+parser.add_option("-r", "--rolling-avg", help="Rolling average for seeks and throughput (in seconds)", default=None)
+parser.add_option("-m", "--movie", help="Generate an IO movie",
+                  default=False, action="store_true")
+parser.add_option("", "--movie-frames", help="Number of frames per second",
+                  default=10)
+parser.add_option("", "--movie-length", help="Movie length in seconds",
+                  default=30)
 
 (options,args) = parser.parse_args()
-options.rolling_avg = int(options.rolling_avg)
 
 if not options.trace:
     parser.print_help()
@@ -283,6 +378,11 @@ times = data[:,7]
 xmin = min(times)
 xmax = max(times)
 
+if options.rolling_avg == None:
+    options.rolling_avg = int((xmax - xmin) / 25)
+else:
+    options.rolling_avg = int(options.rolling_avg)
+
 if options.xzoom:
     words = [ float(x) for x in options.xzoom.split(':') ]
     if words[0] != 0:
@@ -305,7 +405,12 @@ if options.no_io_graph:
 else:
     total_graphs = 3
 
+if options.movie:
+    data_movie(data)
+    sys.exit(1)
+
 f = figure(figsize=(8,6))
+
 
 # Throughput goes at the botoom
 a = subplot(total_graphs, 1, total_graphs)
