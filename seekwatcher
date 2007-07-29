@@ -98,8 +98,9 @@ def data_movie(data):
     movie_length = int(options.movie_length)
     movie_fps = int(options.movie_frames)
     total_frames = movie_length * movie_fps
-    print "total frames is %d\n" % total_frames
-    secs_per_frame = max(1, total_secs / total_frames)
+    secs_per_frame = total_secs / total_frames
+    print "total frames is %d secs per frame = %.2f\n" % (total_frames,
+                                                          secs_per_frame)
     start_second = xmin
 
     times = data[:,7]
@@ -108,14 +109,24 @@ def data_movie(data):
     fname, fname_ext = os.path.splitext(options.output)
     i = 0
     prev = []
-    f = figure(figsize=(8,8))
-    a = subplot(111)
+    f = figure(figsize=(8,6))
+    a = axes([ 0.10, 0.25, .85, .70 ])
+    seek_ax = axes([ 0.10, 0.10, .85, .12 ])
+    plot_seek_count(seek_ax, None, data, '-', None)
+    ticks = seek_ax.get_yticks()
+    ticks = list(arange(0, ticks[-1] + ticks[-1]/3 -1, ticks[-1]/3))
+    seek_ax.set_yticks(ticks)
+    seek_ax.set_yticklabels( [ str(int(x)) for x in ticks ])
+    seek_ax.set_ylabel('Seeks / sec')
+    seek_ax.set_xlabel('Time (seconds)')
+    seek_ax.grid(True)
+    seek_ax.set_xlim(xmin, xmax)
 
     a.set_xticklabels([])
     a.set_yticklabels([])
     a.set_xlim(0, 300)
     a.set_ylim(0, 300)
-    hold(False)
+    a.hold(False)
     datai = 0
     datalen = len(data)
 
@@ -125,7 +136,6 @@ def data_movie(data):
         end = start + secs_per_frame
         if datai >= datalen or data[datai][7] > xmax:
             break
-        print "start %d secs end %d secs frame %d" % (start, end, figindex)
         xvals = []
         yvals = []
         while datai < datalen and data[datai][7] < end:
@@ -145,7 +155,7 @@ def data_movie(data):
             continue
         add_frame(prev, (xvals, yvals), 10)
         alpha = 1.0
-        hold(False)
+        a.hold(False)
         for x in xrange(len(prev)):
             vals = prev[x]
             if x == len(prev) - 1:
@@ -155,14 +165,17 @@ def data_movie(data):
             color = "%.2f" % alpha
             a.plot(vals[0], vals[1], 's', color=color, mfc=color,
                    mec=color, alpha=alpha)
-            hold(True)
+            a.hold(True)
         a.set_xticklabels([])
         a.set_yticklabels([])
         a.set_xlim(0, 300)
         a.set_ylim(0, 300)
-        f.savefig("%s-%.6d%s" % (fname, figindex, fname_ext), dpi=80)
+        line = seek_ax.axvline(x=end, color='k')
+        print "start %.2f secs end %.2f secs frame %d" % (start, end, figindex)
+        f.savefig("%s-%.6d%s" % (fname, figindex, fname_ext), dpi=90)
+        line.set_linestyle('None')
         figindex += 1
-    hold(True)
+    a.hold(True)
 
     os.system("mencoder mf://%s*.png -mf type=png:fps=%d -of mpeg -ovc lavc -lavcopts vcodec=mpeg1video -oac copy -o %s.mpg" % (fname, movie_fps, fname))
 
@@ -333,12 +346,15 @@ for x in options.trace:
 shapeit(data)
 for x in runs:
     shapeit(x)
+    if len(x) == 0:
+        sys.stderr.write("Empty blktrace run found, exiting\n")
+        sys.exit(1)
 
 # try to drop out the least common data points by creating
 # a historgram of the sectors seen.
 sectors = data[:,4]
 ymean = numpy.mean(sectors)
-sectormax = max(sectors)
+sectormax = numpy.max(sectors)
 
 if not options.zoom or ':' not in options.zoom:
     hist, bound = numpy.histogram(sectors, bins=10)
@@ -375,8 +391,8 @@ else:
 
 flags = [ x[:,0] for x in runs ]
 times = data[:,7]
-xmin = min(times)
-xmax = max(times)
+xmin = numpy.min(times)
+xmax = numpy.max(times)
 
 if options.rolling_avg == None:
     options.rolling_avg = int((xmax - xmin) / 25)
@@ -406,7 +422,7 @@ else:
     total_graphs = 3
 
 if options.movie:
-    data_movie(data)
+    data_movie(completed_data[0])
     sys.exit(1)
 
 f = figure(figsize=(8,6))
