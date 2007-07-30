@@ -494,7 +494,7 @@ for i in xrange(len(completed_data)):
 ticks = a.get_yticks()
 ticks = list(arange(0, ticks[-1] + ticks[-1]/4 -1, ticks[-1]/4))
 a.set_yticks(ticks)
-a.set_yticklabels( [ str(int(x)) for x in ticks ])
+a.set_yticklabels( [ "%.1f" % x for x in ticks ])
 a.set_title('Throughput')
 a.set_ylabel('MB/s')
 
