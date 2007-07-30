@@ -130,12 +130,7 @@ def data_movie(data):
     def xycalc(sector):
         if sector < yzoommin or sector > yzoommax:
             return None
-        range = yzoommax - yzoommin
-        scale = range / (300.0 * 300.0)
-        sector = sector - yzoommin
-        if scale > 1:
-            sector = sector / scale
-        yval = sector / 300
+        yval = floor(sector / 300)
         xval = sector % 300
         return (xval, yval)
 
@@ -194,7 +189,7 @@ def data_movie(data):
     a.set_xticklabels([])
     a.set_yticklabels([])
     a.set_xlim(0, 300)
-    a.set_ylim(0, 300)
+    a.set_ylim(yzoommin/300, yzoommax/300)
     a.hold(False)
     datai = 0
     datalen = len(data)
@@ -205,7 +200,6 @@ def data_movie(data):
         end = start + secs_per_frame
         if datai >= datalen or data[datai][7] > xmax:
             break
-        print "start %.2f secs end %.2f secs frame %d" % (start, end, figindex)
         xvals = []
         yvals = []
         while datai < datalen and data[datai][7] < end:
@@ -216,13 +210,14 @@ def data_movie(data):
                 continue
             datai += 1
             sector = row[4]
+            size = int(max(row[5] / 8192, 1))
             rbs = row[1]
-            xy = xycalc(sector)
-            if not xy:
-                print "xy failed on %.2f min %.2f max %.2f" % (sector, yzoommin, yzoommax)
-                continue
-            xvals.append(xy[0])
-            yvals.append(xy[1])
+            for x in xrange(size):
+                xy = xycalc(sector)
+                sector += 1
+                if xy:
+                    xvals.append(xy[0])
+                    yvals.append(xy[1])
         if not xvals:
             continue
         add_frame(prev, (xvals, yvals), 10)
@@ -235,17 +230,18 @@ def data_movie(data):
             else:
                 alpha -= .1
             color = "%.2f" % alpha
-            a.plot(vals[0], vals[1], 's', color=color, mfc=color,
-                   mec=color, alpha=alpha, )
+            a.plot(vals[0], vals[1], '.', color=color, mfc=color,
+                   mec=color, alpha=alpha)
             a.hold(True)
         a.set_xticklabels([])
         a.set_yticklabels([])
         a.set_xlim(0, 300)
-        a.set_ylim(0, 300)
+        a.set_ylim(yzoommin/300, yzoommax/300)
         line = seek_ax.axvline(x=end, color='k')
         line2 = tput_ax.axvline(x=end, color='k')
         tput_ax.set_xlim(xmin, xmax)
         seek_ax.set_xlim(xmin, xmax)
+        print "start %.2f secs end %.2f secs frame %d" % (start, end, figindex)
         f.savefig("%s-%.6d%s" % (fname, figindex, fname_ext), dpi=options.dpi)
         line.set_linestyle('None')
         line2.set_linestyle('None')
