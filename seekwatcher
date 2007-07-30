@@ -378,15 +378,15 @@ if not options.trace:
     parser.print_help()
     sys.exit(1)
 
-check_for_kernel_feature("DEBUG_FS")
-check_for_kernel_feature("BLK_DEV_IO_TRACE")
-check_for_debugfs()
-
 converters = {}
 converters[0] = flag2num
 converters[1] = command2num
 
 if options.prog:
+    check_for_kernel_feature("DEBUG_FS")
+    check_for_kernel_feature("BLK_DEV_IO_TRACE")
+    check_for_debugfs()
+
     if not options.trace or not options.device:
         sys.stderr.write("blktrace output file or device not specified\n")
         sys.exit(1)
@@ -451,9 +451,9 @@ xmin = numpy.min(times)
 xmax = numpy.max(times)
 
 if options.rolling_avg == None:
-    options.rolling_avg = int((xmax - xmin) / 25)
+    options.rolling_avg = max(1, int((xmax - xmin) / 25))
 else:
-    options.rolling_avg = int(options.rolling_avg)
+    options.rolling_avg = max(1, int(options.rolling_avg))
 
 if options.xzoom:
     words = [ float(x) for x in options.xzoom.split(':') ]
