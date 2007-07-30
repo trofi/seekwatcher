@@ -130,8 +130,10 @@ def data_movie(data):
     def xycalc(sector):
         if sector < yzoommin or sector > yzoommax:
             return None
-        yval = floor(sector / 300)
-        xval = sector % 300
+        sector = sector - yzoommin
+        sector = sector / sectors_per_cell
+        yval = floor(sector / num_cells)
+        xval = sector % num_cells
         return (xval, yval)
 
     def add_frame(prev, ins, max):
@@ -139,6 +141,11 @@ def data_movie(data):
             del prev[0]
         prev.append(ins)
         
+    
+    num_cells = 600 / options.movie_cell_size
+    total_cells = num_cells * num_cells
+    sector_range = yzoommax - yzoommin
+    sectors_per_cell = sector_range / total_cells
     total_secs = xmax - xmin
     movie_length = int(options.movie_length)
     movie_fps = int(options.movie_frames)
@@ -188,8 +195,8 @@ def data_movie(data):
 
     a.set_xticklabels([])
     a.set_yticklabels([])
-    a.set_xlim(0, 300)
-    a.set_ylim(yzoommin/300, yzoommax/300)
+    a.set_xlim(0, num_cells)
+    a.set_ylim(0, num_cells)
     a.hold(False)
     datai = 0
     datalen = len(data)
@@ -210,11 +217,13 @@ def data_movie(data):
                 continue
             datai += 1
             sector = row[4]
-            size = int(max(row[5] / 8192, 1))
+            size = int(max(row[5] / 512, 1))
             rbs = row[1]
-            for x in xrange(size):
+            cell = 0
+            while cell < size:
                 xy = xycalc(sector)
-                sector += 1
+                sector += sectors_per_cell
+                cell += sectors_per_cell
                 if xy:
                     xvals.append(xy[0])
                     yvals.append(xy[1])
@@ -230,13 +239,13 @@ def data_movie(data):
             else:
                 alpha -= .1
             color = "%.2f" % alpha
-            a.plot(vals[0], vals[1], '.', color=color, mfc=color,
-                   mec=color, alpha=alpha)
+            a.plot(vals[0], vals[1], 's', color=color, mfc=color,
+                   mec=color, alpha=alpha, markersize=options.movie_cell_size)
             a.hold(True)
         a.set_xticklabels([])
         a.set_yticklabels([])
-        a.set_xlim(0, 300)
-        a.set_ylim(yzoommin/300, yzoommax/300)
+        a.set_xlim(0, num_cells)
+        a.set_ylim(0, num_cells)
         line = seek_ax.axvline(x=end, color='k')
         line2 = tput_ax.axvline(x=end, color='k')
         tput_ax.set_xlim(xmin, xmax)
@@ -429,9 +438,12 @@ parser.add_option("", "--movie-frames", help="Number of frames per second",
                   default=10)
 parser.add_option("", "--movie-length", help="Movie length in seconds",
                   default=30)
+parser.add_option("", "--movie-cell-size",
+                  help="Size in pixels of the IO cells", default=2)
 
 (options,args) = parser.parse_args()
 
+options.movie_cell_size = float(options.movie_cell_size)
 if not options.trace:
     parser.print_help()
     sys.exit(1)
