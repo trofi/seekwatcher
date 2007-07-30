@@ -52,7 +52,7 @@
 # Free Software Foundation, Inc., 59 Temple Place - Suite 330,
 # Boston, MA 021110-1307, USA.
 #
-import sys, os, signal, time
+import sys, os, signal, time, commands
 from optparse import OptionParser
 from matplotlib import rcParams
 from matplotlib.font_manager import fontManager, FontProperties
@@ -313,6 +313,42 @@ def getlabel(i):
         return options.label[i]
     return ""
 
+def running_config():
+	"""
+	Return path of config file of the currently running kernel
+	"""
+	version = commands.getoutput('uname -r')
+	for config in ('/proc/config.gz', \
+		       '/boot/config-%s' % version,
+		       '/lib/modules/%s/build/.config' % version):
+		if os.path.isfile(config):
+			return config
+	return None
+
+
+def check_for_kernel_feature(feature):
+	config = running_config()
+
+	if not config:
+		sys.stderr.write("Can't find kernel config file")
+
+	if config.endswith('.gz'):
+		grep = 'zgrep'
+	else:
+		grep = 'grep'
+	grep += ' ^CONFIG_%s= %s' % (feature, config)
+
+	if not commands.getoutput(grep):
+		sys.stderr.write("Kernel doesn't have a %s feature\n" % (feature))
+		sys.exit(1)
+
+def check_for_debugfs():
+	tmp = commands.getoutput('mount | grep /sys/kernel/debug')
+	tmp = len(tmp)
+	if tmp == 0:
+		sys.stderr.write("debugfs not mounted (/sys/kernel/debug)\n")
+		sys.exit(1)
+
 usage = "usage: %prog [options]"
 parser = OptionParser(usage=usage)
 parser.add_option("-d", "--device", help="Device for blktrace", default="")
@@ -341,6 +377,10 @@ parser.add_option("", "--movie-length", help="Movie length in seconds",
 if not options.trace:
     parser.print_help()
     sys.exit(1)
+
+check_for_kernel_feature("DEBUG_FS")
+check_for_kernel_feature("BLK_DEV_IO_TRACE")
+check_for_debugfs()
 
 converters = {}
 converters[0] = flag2num
