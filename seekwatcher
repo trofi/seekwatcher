@@ -84,8 +84,42 @@ def loaddata(fh,delimiter=None, converters=None):
 
     def iter(fh, delimiter, converters):
         if converters is None: converters = {}
+        last_sector = None
+        last_rw = None
+        last_row = None
+        last_end = None
+        last_cmd = None
+        last_size = None
         for i,line in enumerate(fh):
             row = [converters.get(i,float)(val) for i,val in enumerate(line.split(delimiter))]
+            this_time = row[7]
+            this_sector = row[4]
+            this_rw = row[1]
+            this_size = row[5] / 512
+            this_cmd = row[0]
+            if this_cmd != 1.0:
+                continue
+
+            if (last_row and this_rw == last_rw and
+                this_time - last_time < .5 and this_cmd == last_cmd and
+                last_size < 512 and
+                this_sector == last_end):
+                last_end += this_size
+                last_size += this_size
+                last_row[5] += row[5]
+                continue
+                
+            if last_row:
+                for x in last_row:
+                    yield x
+                
+            last_row = row
+            last_sector = this_sector
+            last_time = this_time
+            last_rw = this_rw
+            last_end = this_sector + this_size
+            last_cmd = this_cmd
+            last_size = this_size
             for x in row:
                 yield x
 
@@ -126,17 +160,36 @@ def data_movie(data):
     i = 0
     prev = []
     f = figure(figsize=(8,6))
-    a = axes([ 0.10, 0.25, .85, .70 ])
-    seek_ax = axes([ 0.10, 0.10, .85, .12 ])
+    a = axes([ 0.10, 0.29, .85, .68 ])
+    tput_ax = axes([ 0.10, 0.19, .85, .09 ])
+    seek_ax = axes([ 0.10, 0.07, .85, .09 ])
+
     plot_seek_count(seek_ax, None, data, '-', None)
     ticks = seek_ax.get_yticks()
     ticks = list(arange(0, ticks[-1] + ticks[-1]/3 -1, ticks[-1]/3))
     seek_ax.set_yticks(ticks)
-    seek_ax.set_yticklabels( [ str(int(x)) for x in ticks ])
-    seek_ax.set_ylabel('Seeks / sec')
-    seek_ax.set_xlabel('Time (seconds)')
+    seek_ax.set_yticklabels( [ str(int(x)) for x in ticks ], fontsize='x-small')
+    seek_ax.set_ylabel('Seeks / sec', fontsize='x-small')
+    seek_ax.set_xlabel('Time (seconds)', fontsize='x-small')
     seek_ax.grid(True)
-    seek_ax.set_xlim(xmin, xmax)
+
+    plot_throughput(tput_ax, None, data, '-', None)
+
+    # cut down the number of yticks to something more reasonable
+    ticks = tput_ax.get_yticks()
+    ticks = list(arange(0, ticks[-1] + ticks[-1]/3 -1, ticks[-1]/3))
+    tput_ax.set_yticks(ticks)
+    tput_ax.set_xticks([])
+    tput_ax.grid(True)
+
+    if ticks[-1] < 3:
+        tput_ax.set_yticklabels( [ "%.1f" % x for x in ticks ],
+                                fontsize='x-small')
+    else:
+        tput_ax.set_yticklabels( [ "%d" % x for x in ticks ],
+                                fontsize='x-small')
+
+    tput_ax.set_ylabel('MB/s', fontsize='x-small')
 
     a.set_xticklabels([])
     a.set_yticklabels([])
@@ -152,18 +205,21 @@ def data_movie(data):
         end = start + secs_per_frame
         if datai >= datalen or data[datai][7] > xmax:
             break
+        print "start %.2f secs end %.2f secs frame %d" % (start, end, figindex)
         xvals = []
         yvals = []
         while datai < datalen and data[datai][7] < end:
             row = data[datai]
             time = row[7]
             if time < start:
+                print "dropping time %.2f < start %.2f" % (time, start)
                 continue
             datai += 1
             sector = row[4]
             rbs = row[1]
             xy = xycalc(sector)
             if not xy:
+                print "xy failed on %.2f min %.2f max %.2f" % (sector, yzoommin, yzoommax)
                 continue
             xvals.append(xy[0])
             yvals.append(xy[1])
@@ -180,20 +236,23 @@ def data_movie(data):
                 alpha -= .1
             color = "%.2f" % alpha
             a.plot(vals[0], vals[1], 's', color=color, mfc=color,
-                   mec=color, alpha=alpha)
+                   mec=color, alpha=alpha, )
             a.hold(True)
         a.set_xticklabels([])
         a.set_yticklabels([])
         a.set_xlim(0, 300)
         a.set_ylim(0, 300)
         line = seek_ax.axvline(x=end, color='k')
-        print "start %.2f secs end %.2f secs frame %d" % (start, end, figindex)
-        f.savefig("%s-%.6d%s" % (fname, figindex, fname_ext), dpi=90)
+        line2 = tput_ax.axvline(x=end, color='k')
+        tput_ax.set_xlim(xmin, xmax)
+        seek_ax.set_xlim(xmin, xmax)
+        f.savefig("%s-%.6d%s" % (fname, figindex, fname_ext), dpi=options.dpi)
         line.set_linestyle('None')
+        line2.set_linestyle('None')
         figindex += 1
     a.hold(True)
 
-    os.system("mencoder mf://%s*.png -mf type=png:fps=%d -of mpeg -ovc lavc -lavcopts vcodec=mpeg1video -oac copy -o %s.mpg" % (fname, movie_fps, fname))
+    os.system("mencoder mf://%s*.png -mf type=png:fps=%d -of mpeg -ovc lavc -lavcopts vcodec=mpeg2video -oac copy -o %s.mpg" % (fname, movie_fps, fname))
 
 def plot_data(ax, rw, data, style, label, alpha=1):
     if rw != None:
@@ -250,10 +309,12 @@ def plot_seek_count(ax, rw, data, style, label, alpha=1):
     def iter(sectors, times):
         count = 0.0
         last = None
+        last_size = None
         sec = None
         roll = []
         for x in xrange(len(sectors)):
             sector = sectors[x]
+            io_size = data[x][5] / 512
             cur_time = floor(times[x])
             if sec == None:
                 avg = add_roll(roll, options.rolling_avg, 0.0)
@@ -266,10 +327,11 @@ def plot_seek_count(ax, rw, data, style, label, alpha=1):
                 count = 0
                 sec = cur_time
             if last != None:
-                diff = abs(last - sector)
+                diff = abs((last + last_size) - sector)
                 if diff > 128:
                     count += 1
             last = sector
+            last_size = io_size
 
     if rw != None:
         rbs = data[:,1]
@@ -319,8 +381,8 @@ def running_config():
 	"""
 	version = commands.getoutput('uname -r')
 	for config in ('/proc/config.gz', \
-		       '/boot/config-%s' % version,
-		       '/lib/modules/%s/build/.config' % version):
+                       '/boot/config-%s' % version,
+                       '/lib/modules/%s/build/.config' % version):
 		if os.path.isfile(config):
 			return config
 	return None
@@ -409,15 +471,30 @@ for x in runs:
 # try to drop out the least common data points by creating
 # a historgram of the sectors seen.
 sectors = data[:,4]
+sizes = data[:,5]
 ymean = numpy.mean(sectors)
 sectormax = numpy.max(sectors)
 
 if not options.zoom or ':' not in options.zoom:
-    hist, bound = numpy.histogram(sectors, bins=10)
+    def all_bytes(data):
+        for row in data:
+            start = row[4]
+            size = row[5] / 512
+            yield start
+            for x in xrange(int(size)):
+                yield start + x + 1
+
+    X = numpy.fromiter(all_bytes(data), dtype=float)
+
+    hist, bound = numpy.histogram(X, bins=10)
     m = numpy.max(hist)
     bound = list(bound)
-    bound.append(sectormax)
+    bound.append(numpy.max(X))
 
+    mbhist = []
+    for i in xrange(len(bound) - 1):
+        firsti = bound[i]
+        lasti = bound[i + 1]
     for x in xrange(len(hist)):
         if m == hist[x]:
             maxi = x
@@ -427,16 +504,16 @@ if not options.zoom or ':' not in options.zoom:
     #
     yzoommin = bound[maxi]
     for x in xrange(0, maxi):
-        if hist[x] > hist[maxi] * .15:
+        if hist[x] > hist[maxi] * .05:
             yzoommin = bound[x]
             break
 
     yzoommax = bound[maxi + 1]
     for x in xrange(len(hist) - 1, maxi, -1):
-        if hist[x] > hist[maxi] * .15:
+        if hist[x] > hist[maxi] * .05:
             yzoommax = bound[x + 1]
             break
-
+    X = None
 else:
     words = options.zoom.split(':')
     yzoommin = max(0, float(words[0]) * 2048)
@@ -445,6 +522,7 @@ else:
     else:
         yzoommax = min(sectormax, float(words[1]) * 2048)
 
+sizes = 0
 flags = [ x[:,0] for x in runs ]
 times = data[:,7]
 xmin = numpy.min(times)
@@ -494,7 +572,12 @@ for i in xrange(len(completed_data)):
 ticks = a.get_yticks()
 ticks = list(arange(0, ticks[-1] + ticks[-1]/4 -1, ticks[-1]/4))
 a.set_yticks(ticks)
-a.set_yticklabels( [ "%.1f" % x for x in ticks ])
+
+if ticks[-1] < 4:
+    a.set_yticklabels( [ "%.1f" % x for x in ticks ])
+else:
+    a.set_yticklabels( [ "%d" % x for x in ticks ])
+
 a.set_title('Throughput')
 a.set_ylabel('MB/s')
 
