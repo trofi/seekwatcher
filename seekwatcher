@@ -91,18 +91,16 @@ def loaddata(fh,delimiter=None, converters=None):
         last_cmd = None
         last_size = None
         for i,line in enumerate(fh):
+            if not line.startswith('C'):
+                continue
             row = [converters.get(i,float)(val) for i,val in enumerate(line.split(delimiter))]
             this_time = row[7]
             this_sector = row[4]
             this_rw = row[1]
             this_size = row[5] / 512
-            this_cmd = row[0]
-            if this_cmd != 1.0:
-                continue
 
             if (last_row and this_rw == last_rw and
-                this_time - last_time < .5 and this_cmd == last_cmd and
-                last_size < 512 and
+                this_time - last_time < .5 and last_size < 512 and
                 this_sector == last_end):
                 last_end += this_size
                 last_size += this_size
@@ -118,7 +116,6 @@ def loaddata(fh,delimiter=None, converters=None):
             last_time = this_time
             last_rw = this_rw
             last_end = this_sector + this_size
-            last_cmd = this_cmd
             last_size = this_size
             for x in row:
                 yield x
@@ -401,7 +398,7 @@ def run_prog(program, trace, device):
 
 def run_blkparse(trace, converters):
     p = os.popen('blkparse -q -i ' + trace +
-                 ' -f "%a %d %M %m %S %N %s %5T.%9t\n" | grep -v "^Input file"')
+                 ' -f "%a %d %M %m %S %N %s %5T.%9t\n"')
     data = loaddata(p, converters=converters)
     return data
 
@@ -518,25 +515,26 @@ ymean = numpy.mean(sectors)
 sectormax = numpy.max(sectors)
 
 if not options.zoom or ':' not in options.zoom:
-    def all_bytes(data):
-        for row in data:
-            start = row[4]
-            size = row[5] / 512
-            yield start
-            for x in xrange(int(size)):
-                yield start + x + 1
+    def add_range(hist, step, start, size):
+        while size > 0:
+            slot = int(start / step)
+            slot_start = step * slot
+            val = hist[slot]
+            this_size = min(size, start - slot_start)
+            this_count = max(this_size / 512, 1)
+            hist[slot] = val + this_count
+            size -= this_size
+            start += this_count
+        
+    hist = [0] * 11
+    step = sectormax / 10
+    for row in data:
+        start = row[4]
+        size = row[5] / 512
+        add_range(hist, step, start, size)
 
-    X = numpy.fromiter(all_bytes(data), dtype=float)
+    m = max(hist)
 
-    hist, bound = numpy.histogram(X, bins=10)
-    m = numpy.max(hist)
-    bound = list(bound)
-    bound.append(numpy.max(X))
-
-    mbhist = []
-    for i in xrange(len(bound) - 1):
-        firsti = bound[i]
-        lasti = bound[i + 1]
     for x in xrange(len(hist)):
         if m == hist[x]:
             maxi = x
@@ -544,18 +542,17 @@ if not options.zoom or ':' not in options.zoom:
     # min and max values looking for the first buckets that have some
     # significant portion of the data
     #
-    yzoommin = bound[maxi]
+    yzoommin = maxi * step
     for x in xrange(0, maxi):
         if hist[x] > hist[maxi] * .05:
-            yzoommin = bound[x]
+            yzoommin = x * step
             break
 
-    yzoommax = bound[maxi + 1]
+    yzoommax = (maxi + 1) * step
     for x in xrange(len(hist) - 1, maxi, -1):
         if hist[x] > hist[maxi] * .05:
-            yzoommax = bound[x + 1]
+            yzoommax = (x + 1) * step
             break
-    X = None
 else:
     words = options.zoom.split(':')
     yzoommin = max(0, float(words[0]) * 2048)
