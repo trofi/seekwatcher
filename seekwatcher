@@ -117,7 +117,8 @@ def loaddata(fh,delimiter=None, converters=None):
             last_rw = this_rw
             last_end = this_sector + this_size
             last_size = this_size
-            for x in row:
+        if last_row:
+            for x in last_row:
                 yield x
 
     X = numpy.fromiter(iter(fh, delimiter, converters), dtype=float)
@@ -582,11 +583,6 @@ if options.xzoom:
     if words[1] != 0:
         xmax = words[1]
 
-completed_data = []
-for i in xrange(len(runs)):
-    completed = numpy.where(flags[i] == 1)
-    completed_data.append(runs[i][completed])
-
 sectors = 0
 flags = 0
 completed = 0
@@ -598,7 +594,7 @@ else:
     total_graphs = 3
 
 if options.movie:
-    data_movie(completed_data[0])
+    data_movie(runs[0])
     sys.exit(1)
 
 f = figure(figsize=(8,6))
@@ -606,9 +602,9 @@ f = figure(figsize=(8,6))
 
 # Throughput goes at the botoom
 a = subplot(total_graphs, 1, total_graphs)
-for i in xrange(len(completed_data)):
+for i in xrange(len(runs)):
     label = getlabel(i)
-    plot_throughput(a, None, completed_data[i], '-', label)
+    plot_throughput(a, None, runs[i], '-', label)
 
 # cut down the number of yticks to something more reasonable
 ticks = a.get_yticks()
@@ -633,9 +629,9 @@ if options.label:
 
 # next is the seek count graph
 a = subplot(total_graphs, 1, total_graphs - 1)
-for i in xrange(len(completed_data)):
+for i in xrange(len(runs)):
     label = getlabel(i)
-    plot_seek_count(a, None, completed_data[i], '-', label)
+    plot_seek_count(a, None, runs[i], '-', label)
 
 # cut down the number of yticks to something more reasonable
 ticks = a.get_yticks()
@@ -654,21 +650,19 @@ if options.label:
 # and the optional IO graph
 if not options.no_io_graph:
     a = subplot(total_graphs, 1, total_graphs - 2)
-    for i in xrange(len(completed_data)):
+    for i in xrange(len(runs)):
         label = getlabel(i)
-        plot_data(a, 0, completed_data[i], options.io_graph_dots,
+        plot_data(a, 0, runs[i], options.io_graph_dots,
                   label + " Read")
-        plot_data(a, 1, completed_data[i], options.io_graph_dots,
+        plot_data(a, 1, runs[i], options.io_graph_dots,
                   label + " Write")
 
     a.set_title('Disk IO')
     a.set_ylabel('Disk offset (MB)')
     flag = data[:,0]
-    completed = numpy.where(flag == 1)
-    completed_data = data[completed]
-    sectors = completed_data[:,4]
+    sectors = data[:,4]
     zoom = (sectors > yzoommin) & (sectors < yzoommax)
-    zoom = completed_data[zoom]
+    zoom = data[zoom]
     sectors = zoom[:,4]
     yzoommin = numpy.min(sectors)
     yzommmax = numpy.max(sectors)
