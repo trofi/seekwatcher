@@ -394,7 +394,7 @@ def run_prog(program, trace, device):
     pid, err = os.wait()
     if err:
         sys.stderr.write("exit due to blktrace failure %d\n" % err)
-        exit(1)
+        sys.exit(1)
     sys.stderr.write("blktrace done\n")
 
 def run_blkparse(trace, converters):
