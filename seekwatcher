@@ -186,7 +186,7 @@ def data_movie(data):
 
     plot_seek_count(seek_ax, None, data, '-', None)
     ticks = seek_ax.get_yticks()
-    ticks = list(arange(0, ticks[-1] + ticks[-1]/3 -1, ticks[-1]/3))
+    ticks = list(arange(0, ticks[-1] + ticks[-1]/3, ticks[-1]/3))
     seek_ax.set_yticks(ticks)
     seek_ax.set_yticklabels( [ str(int(x)) for x in ticks ], fontsize='x-small')
     seek_ax.set_ylabel('Seeks / sec', fontsize='x-small')
@@ -197,7 +197,7 @@ def data_movie(data):
 
     # cut down the number of yticks to something more reasonable
     ticks = tput_ax.get_yticks()
-    ticks = list(arange(0, ticks[-1] + ticks[-1]/3 -1, ticks[-1]/3))
+    ticks = list(arange(0, ticks[-1] + ticks[-1]/3, ticks[-1]/3))
     tput_ax.set_yticks(ticks)
     tput_ax.set_xticks([])
     tput_ax.grid(True)
@@ -635,7 +635,7 @@ for i in xrange(len(runs)):
 
 # cut down the number of yticks to something more reasonable
 ticks = a.get_yticks()
-ticks = list(arange(0, ticks[-1] + ticks[-1]/4 -1, ticks[-1]/4))
+ticks = list(arange(0, ticks[-1] + ticks[-1]/4, ticks[-1]/4))
 a.set_yticks(ticks)
 a.set_yticklabels( [ str(int(x)) for x in ticks ])
 
