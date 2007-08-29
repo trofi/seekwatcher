@@ -277,13 +277,34 @@ def data_movie(data):
     os.system("mencoder mf://%s*.png -mf type=png:fps=%d -of mpeg -ovc lavc -lavcopts vcodec=mpeg2video:vbitrate=%s -oac copy -o %s.mpg" % (fname, movie_fps, options.movie_vbitrate, fname))
 
 def plot_data(ax, rw, data, style, label, alpha=1):
+    def reduce_plot():
+        reduce = {}
+        skipped = 0
+        for i in xrange(len(times)):
+            x = floor(times[i] / x_per_cell)
+            y = floor(sectors[i] / y_per_cell)
+            if x in reduce and y in reduce[x]:
+                skipped += 1
+                continue
+            h = reduce.setdefault(x, {})
+            h[y] = 1
+            yield x * x_per_cell
+            yield y * y_per_cell 
+    xcells = 325.0
+    x_per_cell = (xmax - xmin) / xcells
+    ycells = 80.0
+    y_per_cell = (yzoommax - yzoommin) / ycells
+
     if rw != None:
         rbs = data[:,1]
         data = data[numpy.where(rbs == rw)]
     times = data[:,7]
     sectors = data[:,4]
     if len(times) > 0:
-        return ax.plot(times, sectors, style, label=label, alpha=alpha)
+        t = numpy.fromiter(reduce_plot(), dtype=float)
+        t.shape = (len(t)/2, 2)
+        return ax.plot(t[:,0], t[:,1], 's', mew=0, ms=2,
+                       label=label, alpha=alpha)
     return []
 
 def add_roll(roll, max, num):
@@ -606,6 +627,16 @@ for i in xrange(len(runs)):
     label = getlabel(i)
     plot_throughput(a, None, runs[i], '-', label)
 
+# make sure the final second goes on the x axes
+ticks = list(arange(xmin, xmax, xmax/8))
+ticks.append(xmax)
+a.set_xticks(ticks)
+a.set_yticklabels( [ "%d" % x for x in ticks ])
+if ticks[-1] < 4:
+    a.set_xticklabels( [ "%.1f" % x for x in ticks ])
+else:
+    a.set_xticklabels( [ "%d" % x for x in ticks ])
+
 # cut down the number of yticks to something more reasonable
 ticks = a.get_yticks()
 ticks = list(arange(0, ticks[-1] + ticks[-1]/4, ticks[-1]/4))
@@ -670,12 +701,12 @@ if not options.no_io_graph:
     ticks.append(yzoommax)
     a.set_yticks(ticks)
     a.set_yticklabels( [ str(int(x/2048)) for x in ticks ] )
-    a.set_ylim(yzoommin, yzoommax)
     a.legend(loc=(1.01, 0.5), shadow=True, pad=0.3, numpoints=1,
                   handletextsep = 0.005,
                   labelsep = 0.01,
                   markerscale = 1.1,
                   prop=FontProperties(size='x-small') )
+    a.set_ylim(yzoommin, yzoommax)
 
 # squeeze the graphs over to the left a bit to make room for the
 # legends
@@ -690,13 +721,14 @@ for x in xrange(1, total_graphs + 1):
     if x < total_graphs:
         a.set_xticklabels([])
 
-    # set the xlimits to something sane
-    a.set_xlim(xmin, xmax)
-
     # create dashed lines for each ytick
     ticks = a.get_yticks()
+    ymin, ymax = a.get_ylim()
     for y in ticks[1:]:
-        a.hlines(y, xmin, xmax, ls='--', alpha=0.5)
+        a.hlines(y, xmin, xmax, linestyle='dashed', alpha=0.5)
+    a.set_ylim(ymin, ymax)
+    # set the xlimits to something sane
+    a.set_xlim(xmin, xmax)
 
 print "saving graph to %s" % options.output
 savefig(options.output, dpi=options.dpi, orientation='landscape')
