@@ -544,7 +544,12 @@ if not options.zoom or ':' not in options.zoom:
         while size > 0:
             slot = int(start / step)
             slot_start = step * slot
-            val = hist[slot]
+            if slot >= len(hist) or slot < 0:
+                sys.stderr.write("illegal slot %d start %d step %d\n" %
+                                (slot, start, step))
+                return
+            else:
+                val = hist[slot]
             this_size = min(size, start - slot_start)
             this_count = max(this_size / 512, 1)
             hist[slot] = val + this_count
