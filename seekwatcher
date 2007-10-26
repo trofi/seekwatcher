@@ -56,11 +56,56 @@ import sys, os, signal, time, commands
 from optparse import OptionParser
 from matplotlib import rcParams
 from matplotlib.font_manager import fontManager, FontProperties
-rcParams['numerix'] = 'numpy'
-rcParams['backend'] = 'Agg'
-rcParams['interactive'] = 'False'
 import numpy
-from pylab import *
+
+class AnnoteFinder:
+  """
+  callback for matplotlib to display an annotation when points are clicked on.  The
+  point which is closest to the click and within xtol and ytol is identified.
+    
+  Register this function like this:
+    
+  scatter(xdata, ydata)
+  af = AnnoteFinder(xdata, ydata, annotes)
+  connect('button_press_event', af)
+  """
+
+  def __init__(self, axis=None):
+    if axis is None:
+      self.axis = gca()
+    else:
+      self.axis= axis
+    self.drawnAnnotations = {}
+    self.links = []
+    
+  def clear(self):
+    for k in self.drawnAnnotations.keys():
+        self.drawnAnnotations[k].set_visible(False)
+
+  def __call__(self, event):
+    if event.inaxes:
+      if event.button != 1:
+        self.clear()
+        draw()
+        return
+      clickX = event.xdata
+      clickY = event.ydata
+      if (self.axis is None) or (self.axis==event.inaxes):
+        self.drawAnnote(event.inaxes, clickX, clickY)
+    
+  def drawAnnote(self, axis, x, y):
+    """
+    Draw the annotation on the plot
+    """
+    if self.drawnAnnotations.has_key((x,y)):
+      markers = self.drawnAnnotations[(x,y)]
+      markers.set_visible(not markers.get_visible())
+      draw()
+    else:
+      t = axis.text(x,y, "(%3.2f, %3.2f)"%(x,y), bbox=dict(facecolor='red',
+                    alpha=0.8))
+      self.drawnAnnotations[(x,y)] = t
+      draw()
 
 def flag2num(flag):
     if flag == 'Q':
@@ -289,7 +334,7 @@ def plot_data(ax, rw, data, style, label, alpha=1):
             h = reduce.setdefault(x, {})
             h[y] = 1
             yield x * x_per_cell
-            yield y * y_per_cell 
+            yield y * y_per_cell
     xcells = 325.0
     x_per_cell = (xmax - xmin) / xcells
     ycells = 80.0
@@ -303,8 +348,11 @@ def plot_data(ax, rw, data, style, label, alpha=1):
     if len(times) > 0:
         t = numpy.fromiter(reduce_plot(), dtype=float)
         t.shape = (len(t)/2, 2)
-        return ax.plot(t[:,0], t[:,1], 's', mew=0, ms=2,
+        xdata = t[:,0]
+        ydata = t[:,1]
+        lines = ax.plot(t[:,0], t[:,1], 's', mew=0, ms=2,
                        label=label, alpha=alpha)
+        return lines
     return []
 
 def add_roll(roll, max, num):
@@ -433,6 +481,11 @@ def getlabel(i):
         return options.label[i]
     return ""
 
+def line_picker(line, mouseevent):
+    if mouseevent.xdata is None: return False, dict()
+    print "%d %d\n", mouseevent.xdata, mouseevent.ydata
+    return False, dict()
+
 def running_config():
 	"""
 	Return path of config file of the currently running kernel
@@ -493,11 +546,25 @@ parser.add_option("", "--movie-length", help="Movie length in seconds",
                   default=30)
 parser.add_option("", "--movie-cell-size",
                   help="Size in pixels of the IO cells", default=2)
+parser.add_option("-i", "--interactive", help="Use matplotlib interactive",
+                  action="store_true", default=False)
+parser.add_option("", "--backend",
+              help="matplotlib backend (QtAgg, TkAgg, GTKAgg) case sensitive",
+              default="QtAgg")
 parser.add_option("", "--movie-vbitrate",
                   help="Mencoder vbitrate option (default 16000)",
                         default="16000")
 
 (options,args) = parser.parse_args()
+
+rcParams['numerix'] = 'numpy'
+if options.interactive:
+    rcParams['backend'] = options.backend
+    rcParams['interactive'] = 'True'
+else:
+    rcParams['backend'] = 'Agg'
+    rcParams['interactive'] = 'False'
+from pylab import *
 
 options.movie_cell_size = float(options.movie_cell_size)
 if not options.trace:
@@ -635,12 +702,14 @@ for i in xrange(len(runs)):
 # make sure the final second goes on the x axes
 ticks = list(arange(xmin, xmax, xmax/8))
 ticks.append(xmax)
+xticks = ticks
 a.set_xticks(ticks)
 a.set_yticklabels( [ "%d" % x for x in ticks ])
 if ticks[-1] < 4:
-    a.set_xticklabels( [ "%.1f" % x for x in ticks ])
+    xticklabels = [ "%.1f" % x for x in ticks ]
 else:
-    a.set_xticklabels( [ "%d" % x for x in ticks ])
+    xticklabels = [ "%d" % x for x in ticks ]
+a.set_xticklabels(xticklabels)
 
 # cut down the number of yticks to something more reasonable
 ticks = a.get_yticks()
@@ -693,6 +762,8 @@ if not options.no_io_graph:
         plot_data(a, 1, runs[i], options.io_graph_dots,
                   label + " Write")
 
+    af = AnnoteFinder(axis=a)
+    connect('button_press_event', af)
     a.set_title('Disk IO')
     a.set_ylabel('Disk offset (MB)')
     flag = data[:,0]
@@ -723,8 +794,11 @@ for x in xrange(1, total_graphs + 1):
     a = subplot(total_graphs, 1, x)
 
     # turn off the xtick labels on the graphs above the bottom
-    if x < total_graphs:
+    if not options.interactive and x < total_graphs:
         a.set_xticklabels([])
+    elif options.interactive:
+        a.set_xticks(xticks)
+        a.set_xticklabels(xticklabels)
 
     # create dashed lines for each ytick
     ticks = a.get_yticks()
@@ -735,7 +809,8 @@ for x in xrange(1, total_graphs + 1):
     # set the xlimits to something sane
     a.set_xlim(xmin, xmax)
 
-print "saving graph to %s" % options.output
-savefig(options.output, dpi=options.dpi, orientation='landscape')
+if not options.interactive:
+    print "saving graph to %s" % options.output
+    savefig(options.output, dpi=options.dpi, orientation='landscape')
 show()
 
