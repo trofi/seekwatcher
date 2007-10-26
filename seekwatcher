@@ -452,7 +452,8 @@ def plot_seek_count(ax, rw, data, style, label, alpha=1):
     return ax.plot(times, counts, style, label=label, alpha=alpha)
 
 def run_blktrace(trace, device):
-    return os.spawnlp(os.P_NOWAIT, "blktrace", "-d", device, "-o", trace)
+    return os.spawnlp(os.P_NOWAIT, "blktrace", "-d", device, "-o", trace,
+                      "-b", "2048")
 
 def run_prog(program, trace, device):
     blktrace_pid = run_blktrace(trace, device)
@@ -554,6 +555,7 @@ parser.add_option("", "--backend",
 parser.add_option("", "--movie-vbitrate",
                   help="Mencoder vbitrate option (default 16000)",
                         default="16000")
+parser.add_option("-T", "--title", help="Graph Title", default="")
 
 (options,args) = parser.parse_args()
 
@@ -584,6 +586,8 @@ if options.prog:
         sys.stderr.write("blktrace output file or device not specified\n")
         sys.exit(1)
     run_prog(options.prog, options.trace[0], options.device)
+    if not options.title:
+        options.title = options.prog
 
 data = numpy.array([])
 runs = []
@@ -692,6 +696,8 @@ if options.movie:
 
 f = figure(figsize=(8,6))
 
+if options.title:
+    options.title += "\n\n"
 
 # Throughput goes at the botoom
 a = subplot(total_graphs, 1, total_graphs)
@@ -744,7 +750,11 @@ ticks = list(arange(0, ticks[-1] + ticks[-1]/4, ticks[-1]/4))
 a.set_yticks(ticks)
 a.set_yticklabels( [ str(int(x)) for x in ticks ])
 
-a.set_title('Seek Count')
+if options.no_io_graph and options.title:
+    a.set_title(options.title + 'Seek Count')
+else:
+    a.set_title('Seek Count')
+
 a.set_ylabel('Seeks / sec')
 if options.label:
     a.legend(loc=(1.01, 0.5), shadow=True, pad=0.5, numpoints=2,
@@ -764,7 +774,7 @@ if not options.no_io_graph:
 
     af = AnnoteFinder(axis=a)
     connect('button_press_event', af)
-    a.set_title('Disk IO')
+    a.set_title(options.title + 'Disk IO')
     a.set_ylabel('Disk offset (MB)')
     flag = data[:,0]
     sectors = data[:,4]
