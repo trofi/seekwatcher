@@ -340,7 +340,16 @@ def plot_data(ax, rw, data, style, label, alpha=1):
     ycells = 80.0
     y_per_cell = (yzoommax - yzoommin) / ycells
 
+    if rw is None:
+        if options.reads_only:
+            rw = 0
+        if options.writes_only:
+            rw = 1
     if rw != None:
+        if options.reads_only and rw != 0:
+            return
+        if options.writes_only and rw != 1:
+            return
         rbs = data[:,1]
         data = data[numpy.where(rbs == rw)]
     times = data[:,7]
@@ -390,9 +399,21 @@ def plot_throughput(ax, rw, data, style, label, alpha=1):
             avg = add_roll(roll, options.rolling_avg, bytes)
             yield(ceil(times[-1]), avg / (1024 * 1024))
 
+    if rw is None:
+        if options.reads_only:
+            rw = 0
+        if options.writes_only:
+            rw = 1
     if rw != None:
+        if options.reads_only and rw != 0:
+            return
+        if options.writes_only and rw != 1:
+            return
         rbs = data[:,1]
         data = data[numpy.where(rbs == rw)]
+
+    if len(data) == 0:
+        return
 
     times = numpy.array([])
     tput = numpy.array([])
@@ -439,9 +460,22 @@ def plot_seek_count(ax, rw, data, style, label, alpha=1):
             avg = add_roll(roll, options.rolling_avg, count)
             yield(ceil(times[-1]), avg)
 
+    if rw is None:
+        if options.reads_only:
+            rw = 0
+        if options.writes_only:
+            rw = 1
+
     if rw != None:
+        if options.reads_only and rw != 0:
+            return
+        if options.writes_only and rw != 1:
+            return
         rbs = data[:,1]
         data = data[numpy.where(rbs == rw)]
+
+    if len(data) == 0:
+        return
 
     times = numpy.array([])
     counts = numpy.array([])
@@ -556,6 +590,10 @@ parser.add_option("", "--movie-vbitrate",
                   help="Mencoder vbitrate option (default 16000)",
                         default="16000")
 parser.add_option("-T", "--title", help="Graph Title", default="")
+parser.add_option("-R", "--reads-only", help="Graph only reads", default=False,
+                  action="store_true")
+parser.add_option("-W", "--writes-only", help="Graph only writes",
+                  default=False, action="store_true")
 
 (options,args) = parser.parse_args()
 
@@ -767,10 +805,8 @@ if not options.no_io_graph:
     a = subplot(total_graphs, 1, total_graphs - 2)
     for i in xrange(len(runs)):
         label = getlabel(i)
-        plot_data(a, 0, runs[i], options.io_graph_dots,
-                  label + " Read")
-        plot_data(a, 1, runs[i], options.io_graph_dots,
-                  label + " Write")
+        plot_data(a, 0, runs[i], options.io_graph_dots, label + " Read")
+        plot_data(a, 1, runs[i], options.io_graph_dots, label + " Write")
 
     af = AnnoteFinder(axis=a)
     connect('button_press_event', af)
