@@ -54,9 +54,16 @@
 #
 import sys, os, signal, time, commands
 from optparse import OptionParser
-from matplotlib import rcParams
-from matplotlib.font_manager import fontManager, FontProperties
-import numpy
+
+blktrace_only = False
+
+try:
+    from matplotlib import rcParams
+    from matplotlib.font_manager import fontManager, FontProperties
+    import numpy
+except:
+    sys.stderr.write("matplotlib not found, using blktrace only mode\n")
+    blktrace_only = True
 
 class AnnoteFinder:
   """
@@ -560,53 +567,62 @@ def check_for_debugfs():
 usage = "usage: %prog [options]"
 parser = OptionParser(usage=usage)
 parser.add_option("-d", "--device", help="Device for blktrace", default="")
-parser.add_option("-z", "--zoom", help="Zoom range min:max (in MB)", default="")
-parser.add_option("-x", "--xzoom", help="Time range min:max (seconds)",
-                default="")
 parser.add_option("-t", "--trace", help="blktrace file", default=[],
                   action="append")
-parser.add_option("-o", "--output", help="output file", default="trace.png")
 parser.add_option("-p", "--prog", help="exec program", default="")
-parser.add_option("-l", "--label", help="label", default=[], action="append")
-parser.add_option("", "--dpi", help="dpi", default=120)
-parser.add_option("", "--io-graph-dots", help="Disk IO dot style", default='.')
-parser.add_option("-I", "--no-io-graph", help="Don't create an IO graph",
-                  default=False, action="store_true")
-parser.add_option("-r", "--rolling-avg", help="Rolling average for seeks and throughput (in seconds)", default=None)
-parser.add_option("-m", "--movie", help="Generate an IO movie",
-                  default=False, action="store_true")
-parser.add_option("", "--movie-frames", help="Number of frames per second",
-                  default=10)
-parser.add_option("", "--movie-length", help="Movie length in seconds",
-                  default=30)
-parser.add_option("", "--movie-cell-size",
-                  help="Size in pixels of the IO cells", default=2)
-parser.add_option("-i", "--interactive", help="Use matplotlib interactive",
-                  action="store_true", default=False)
-parser.add_option("", "--backend",
-              help="matplotlib backend (QtAgg, TkAgg, GTKAgg) case sensitive",
-              default="QtAgg")
-parser.add_option("", "--movie-vbitrate",
-                  help="Mencoder vbitrate option (default 16000)",
-                        default="16000")
-parser.add_option("-T", "--title", help="Graph Title", default="")
-parser.add_option("-R", "--reads-only", help="Graph only reads", default=False,
-                  action="store_true")
-parser.add_option("-W", "--writes-only", help="Graph only writes",
-                  default=False, action="store_true")
+
+if not blktrace_only:
+    parser.add_option("-z", "--zoom", help="Zoom range min:max (in MB)",
+                      default="")
+    parser.add_option("-x", "--xzoom", help="Time range min:max (seconds)",
+                    default="")
+    parser.add_option("-o", "--output", help="output file", default="trace.png")
+    parser.add_option("-l", "--label", help="label", default=[],
+                      action="append")
+    parser.add_option("", "--dpi", help="dpi", default=120)
+    parser.add_option("", "--io-graph-dots", help="Disk IO dot style",
+                      default='.')
+    parser.add_option("-I", "--no-io-graph", help="Don't create an IO graph",
+                      default=False, action="store_true")
+    parser.add_option("-r", "--rolling-avg",
+                  help="Rolling average for seeks and throughput (in seconds)",
+                  default=None)
+    parser.add_option("-m", "--movie", help="Generate an IO movie",
+                      default=False, action="store_true")
+    parser.add_option("", "--movie-frames", help="Number of frames per second",
+                      default=10)
+    parser.add_option("", "--movie-length", help="Movie length in seconds",
+                      default=30)
+    parser.add_option("", "--movie-cell-size",
+                      help="Size in pixels of the IO cells", default=2)
+    parser.add_option("-i", "--interactive", help="Use matplotlib interactive",
+                      action="store_true", default=False)
+    parser.add_option("", "--backend",
+               help="matplotlib backend (QtAgg, TkAgg, GTKAgg) case sensitive",
+               default="QtAgg")
+    parser.add_option("", "--movie-vbitrate",
+                      help="Mencoder vbitrate option (default 16000)",
+                            default="16000")
+    parser.add_option("-T", "--title", help="Graph Title", default="")
+    parser.add_option("-R", "--reads-only", help="Graph only reads",
+                      default=False, action="store_true")
+    parser.add_option("-W", "--writes-only", help="Graph only writes",
+                      default=False, action="store_true")
 
 (options,args) = parser.parse_args()
 
-rcParams['numerix'] = 'numpy'
-if options.interactive:
-    rcParams['backend'] = options.backend
-    rcParams['interactive'] = 'True'
-else:
-    rcParams['backend'] = 'Agg'
-    rcParams['interactive'] = 'False'
-from pylab import *
+if not blktrace_only:
+    rcParams['numerix'] = 'numpy'
+    if options.interactive:
+        rcParams['backend'] = options.backend
+        rcParams['interactive'] = 'True'
+    else:
+        rcParams['backend'] = 'Agg'
+        rcParams['interactive'] = 'False'
+    from pylab import *
 
-options.movie_cell_size = float(options.movie_cell_size)
+    options.movie_cell_size = float(options.movie_cell_size)
+
 if not options.trace:
     parser.print_help()
     sys.exit(1)
@@ -624,6 +640,9 @@ if options.prog:
         sys.stderr.write("blktrace output file or device not specified\n")
         sys.exit(1)
     run_prog(options.prog, options.trace[0], options.device)
+    if blktrace_only:
+        sys.exit(0)
+
     if not options.title:
         options.title = options.prog
 
