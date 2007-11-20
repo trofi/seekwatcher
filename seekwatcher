@@ -212,7 +212,9 @@ def data_movie(data):
                 plotone(a, writex, writey, color)
             alpha += 0.1
     
+    options.movie_cell_size = float(options.movie_cell_size)
     num_cells = 600 / options.movie_cell_size
+
     total_cells = num_cells * num_cells
     sector_range = yzoommax - yzoommin
     sectors_per_cell = sector_range / total_cells
@@ -567,11 +569,19 @@ def check_for_kernel_feature(feature):
 		sys.exit(1)
 
 def check_for_debugfs():
-	tmp = commands.getoutput('mount | grep /sys/kernel/debug')
-	tmp = len(tmp)
-	if tmp == 0:
-		sys.stderr.write("debugfs not mounted (/sys/kernel/debug)\n")
-		sys.exit(1)
+    tmp = commands.getoutput('mount | grep /sys/kernel/debug')
+    tmp = len(tmp)
+    if tmp == 0:
+        sys.stderr.write("debugfs not mounted (/sys/kernel/debug)\n")
+        sys.exit(1)
+
+def check_for_mencoder():
+    dirs = os.path.defpath.split(os.path.pathsep)
+    for dir in dirs:
+        fname = os.path.join(dir, 'mencoder')
+        if os.path.isfile(fname):
+            return True
+    return False
 
 usage = "usage: %prog [options]"
 parser = OptionParser(usage=usage)
@@ -596,27 +606,32 @@ if not blktrace_only:
     parser.add_option("-r", "--rolling-avg",
                   help="Rolling average for seeks and throughput (in seconds)",
                   default=None)
-    parser.add_option("-m", "--movie", help="Generate an IO movie",
-                      default=False, action="store_true")
-    parser.add_option("", "--movie-frames", help="Number of frames per second",
-                      default=10)
-    parser.add_option("", "--movie-length", help="Movie length in seconds",
-                      default=30)
-    parser.add_option("", "--movie-cell-size",
-                      help="Size in pixels of the IO cells", default=2)
+
     parser.add_option("-i", "--interactive", help="Use matplotlib interactive",
                       action="store_true", default=False)
     parser.add_option("", "--backend",
                help="matplotlib backend (QtAgg, TkAgg, GTKAgg) case sensitive",
                default="QtAgg")
-    parser.add_option("", "--movie-vbitrate",
-                      help="Mencoder vbitrate option (default 16000)",
-                            default="16000")
     parser.add_option("-T", "--title", help="Graph Title", default="")
     parser.add_option("-R", "--reads-only", help="Graph only reads",
                       default=False, action="store_true")
     parser.add_option("-W", "--writes-only", help="Graph only writes",
                       default=False, action="store_true")
+
+    mencoder_found = check_for_mencoder()
+    if mencoder_found:
+        parser.add_option("-m", "--movie", help="Generate an IO movie",
+                          default=False, action="store_true")
+        parser.add_option("", "--movie-frames",
+                          help="Number of frames per second",
+                          default=10)
+        parser.add_option("", "--movie-length", help="Movie length in seconds",
+                          default=30)
+        parser.add_option("", "--movie-cell-size",
+                          help="Size in pixels of the IO cells", default=2)
+        parser.add_option("", "--movie-vbitrate",
+                          help="Mencoder vbitrate option (default 16000)",
+                          default="16000")
 
 (options,args) = parser.parse_args()
 
@@ -629,8 +644,6 @@ if not blktrace_only:
         rcParams['backend'] = 'Agg'
         rcParams['interactive'] = 'False'
     from pylab import *
-
-    options.movie_cell_size = float(options.movie_cell_size)
 
 if not options.trace:
     parser.print_help()
@@ -756,7 +769,7 @@ if options.no_io_graph:
 else:
     total_graphs = 3
 
-if options.movie:
+if mencoder_found and options.movie:
     data_movie(runs[0])
     sys.exit(1)
 
