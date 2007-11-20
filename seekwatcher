@@ -52,7 +52,7 @@
 # Free Software Foundation, Inc., 59 Temple Place - Suite 330,
 # Boston, MA 021110-1307, USA.
 #
-import sys, os, signal, time, commands
+import sys, os, signal, time, commands, tempfile
 from optparse import OptionParser
 
 blktrace_only = False
@@ -228,7 +228,11 @@ def data_movie(data):
     times = data[:,7]
     figindex = 0
 
+    png_dir = tempfile.mkdtemp(dir=os.path.dirname(options.output))
+    movie_name = options.output
     fname, fname_ext = os.path.splitext(options.output)
+    fname = os.path.join(png_dir, fname);
+
     i = 0
     prev = []
     f = figure(figsize=(8,6))
@@ -320,13 +324,18 @@ def data_movie(data):
         tput_ax.set_xlim(xmin, xmax)
         seek_ax.set_xlim(xmin, xmax)
         print "start %.2f secs end %.2f secs frame %d" % (start, end, figindex)
-        f.savefig("%s-%.6d%s" % (fname, figindex, fname_ext), dpi=options.dpi)
+        f.savefig("%s-%.6d.%s" % (fname, figindex, "png"), dpi=options.dpi)
         line.set_linestyle('None')
         line2.set_linestyle('None')
         figindex += 1
     a.hold(True)
 
-    os.system("mencoder mf://%s*.png -mf type=png:fps=%d -of mpeg -ovc lavc -lavcopts vcodec=mpeg2video:vbitrate=%s -oac copy -o %s.mpg" % (fname, movie_fps, options.movie_vbitrate, fname))
+    os.system("mencoder mf://%s*.png -mf type=png:fps=%d -of mpeg -ovc lavc -lavcopts vcodec=mpeg2video:vbitrate=%s -oac copy -o %s" % (fname, movie_fps, options.movie_vbitrate, movie_name))
+
+    for root, dirs, files in os.walk(png_dir):
+        for name in files:
+            os.remove(os.path.join(root, name))
+    os.rmdir(png_dir)
 
 def plot_data(ax, rw, data, style, label, alpha=1):
     def reduce_plot():
