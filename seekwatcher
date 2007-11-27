@@ -332,7 +332,10 @@ def data_movie(data):
         figindex += 1
     a.hold(True)
 
-    os.system("mencoder mf://%s*.png -mf type=png:fps=%d -of mpeg -ovc lavc -lavcopts vcodec=mpeg2video:vbitrate=%s -oac copy -o %s" % (fname, movie_fps, options.movie_vbitrate, movie_name))
+    if mencoder_found == "png2theora" and movie_name.endswith('.ogg'):
+        os.system("png2theora -o %s %s" % (movie_name, fname) + '-%06d.png')
+    else:
+        os.system("mencoder mf://%s*.png -mf type=png:fps=%d -of mpeg -ovc lavc -lavcopts vcodec=mpeg2video:vbitrate=%s -oac copy -o %s" % (fname, movie_fps, options.movie_vbitrate, movie_name))
 
     for root, dirs, files in os.walk(png_dir):
         for name in files:
@@ -576,12 +579,16 @@ def check_for_debugfs():
         sys.exit(1)
 
 def check_for_mencoder():
-    dirs = os.path.defpath.split(os.path.pathsep)
+    dirs = os.getenv('PATH', os.path.defpath).split(os.path.pathsep)
+    for dir in dirs:
+        fname = os.path.join(dir, 'png2theora')
+        if os.path.isfile(fname):
+            return "png2theora"
     for dir in dirs:
         fname = os.path.join(dir, 'mencoder')
         if os.path.isfile(fname):
-            return True
-    return False
+            return "mencoder"
+    return None
 
 usage = "usage: %prog [options]"
 parser = OptionParser(usage=usage)
