@@ -352,6 +352,7 @@ def plot_data(ax, rw, data, style, label, alpha=1):
             if x in reduce and y in reduce[x]:
                 skipped += 1
                 continue
+            y += 1
             h = reduce.setdefault(x, {})
             h[y] = 1
             yield x * x_per_cell
