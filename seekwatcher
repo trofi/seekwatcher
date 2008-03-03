@@ -508,8 +508,10 @@ def plot_seek_count(ax, rw, data, style, label, alpha=1):
     return ax.plot(times, counts, style, label=label, alpha=alpha)
 
 def run_blktrace(trace, device):
-    return os.spawnlp(os.P_NOWAIT, "blktrace", "-d", device, "-o", trace,
-                      "-b", "2048")
+    args = [ "blktrace", "-d", device, "-o", trace, "-b", "2048" ]
+    if not options.full_trace:
+        args += [ "-a", "complete" ]
+    return os.spawnlp(os.P_NOWAIT, *args)
 
 def run_prog(program, trace, device):
     blktrace_pid = run_blktrace(trace, device)
@@ -624,6 +626,8 @@ if not blktrace_only:
     parser.add_option("-R", "--reads-only", help="Graph only reads",
                       default=False, action="store_true")
     parser.add_option("-W", "--writes-only", help="Graph only writes",
+                      default=False, action="store_true")
+    parser.add_option("", "--full-trace", help="Don't filter blktrace events",
                       default=False, action="store_true")
 
     mencoder_found = check_for_mencoder()
