@@ -599,6 +599,8 @@ parser.add_option("-d", "--device", help="Device for blktrace", default="")
 parser.add_option("-t", "--trace", help="blktrace file", default=[],
                   action="append")
 parser.add_option("-p", "--prog", help="exec program", default="")
+parser.add_option("", "--full-trace", help="Don't filter blktrace events",
+                  default=False, action="store_true")
 
 if not blktrace_only:
     parser.add_option("-z", "--zoom", help="Zoom range min:max (in MB)",
@@ -626,8 +628,6 @@ if not blktrace_only:
     parser.add_option("-R", "--reads-only", help="Graph only reads",
                       default=False, action="store_true")
     parser.add_option("-W", "--writes-only", help="Graph only writes",
-                      default=False, action="store_true")
-    parser.add_option("", "--full-trace", help="Don't filter blktrace events",
                       default=False, action="store_true")
 
     mencoder_found = check_for_mencoder()
