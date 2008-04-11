@@ -114,6 +114,10 @@ class AnnoteFinder:
       self.drawnAnnotations[(x,y)] = t
       draw()
 
+def dev2num(dev):
+    s2 = dev.replace(',', '.')
+    return float(s2)
+
 def flag2num(flag):
     if flag == 'Q':
         return 0.0
@@ -135,6 +139,8 @@ def command2num(com):
 def loaddata(fh,delimiter=None, converters=None):
 
     def iter(fh, delimiter, converters):
+        global devices_sector_max
+
         if converters is None: converters = {}
         last_sector = None
         last_rw = None
@@ -142,16 +148,22 @@ def loaddata(fh,delimiter=None, converters=None):
         last_end = None
         last_cmd = None
         last_size = None
+        last_dev = None
         for i,line in enumerate(fh):
             if not line.startswith('C'):
                 continue
             row = [converters.get(i,float)(val) for i,val in enumerate(line.split(delimiter))]
             this_time = row[7]
+            this_dev = row[8]
             this_sector = row[4]
             this_rw = row[1]
             this_size = row[5] / 512
 
+            devices_sector_max[this_dev] = max(this_sector + this_size,
+                                    devices_sector_max.get(this_dev, 0));
+
             if (last_row and this_rw == last_rw and
+                this_dev == last_dev and
                 this_time - last_time < .5 and last_size < 512 and
                 this_sector == last_end):
                 last_end += this_size
@@ -169,11 +181,24 @@ def loaddata(fh,delimiter=None, converters=None):
             last_rw = this_rw
             last_end = this_sector + this_size
             last_size = this_size
+            last_dev = this_dev
         if last_row:
             for x in last_row:
                 yield x
 
     X = numpy.fromiter(iter(fh, delimiter, converters), dtype=float)
+    return X
+
+def sort_by_time(data):
+    def sort_iter(sorted):
+        for x in sorted:
+            for field in data[x]:
+                yield field
+
+    times = data[:,7]
+    sorted = times.argsort()
+    X = numpy.fromiter(sort_iter(sorted), dtype=float)
+    shapeit(X)
     return X
 
 def data_movie(data):
@@ -448,13 +473,19 @@ def plot_throughput(ax, rw, data, style, label, alpha=1):
 def plot_seek_count(ax, rw, data, style, label, alpha=1):
     def iter(sectors, times):
         count = 0.0
+        last_dev = {}
+        # last holds an array (sector, size)
+
         last = None
         last_size = None
         sec = None
+
         roll = []
         for x in xrange(len(sectors)):
             sector = sectors[x]
             io_size = data[x][5] / 512
+            dev = data[x][8]
+            last, last_size = last_dev.get(dev, (None, None))
             cur_time = floor(times[x])
             if sec == None:
                 avg = add_roll(roll, options.rolling_avg, 0.0)
@@ -470,10 +501,12 @@ def plot_seek_count(ax, rw, data, style, label, alpha=1):
                 diff = abs((last + last_size) - sector)
                 if diff > 128:
                     count += 1
-            last = sector
-            last_size = io_size
+            last_dev[dev] = (sector, io_size)
+
         scale = times[-1] - sec
         if scale > 0 and scale < 1:
+            dev = data[-1][8]
+            last, last_size = last_dev[dev]
             sector = sectors[-1]
             diff = abs((last + last_size) - sector)
             if diff > 128:
@@ -507,33 +540,80 @@ def plot_seek_count(ax, rw, data, style, label, alpha=1):
 
     return ax.plot(times, counts, style, label=label, alpha=alpha)
 
-def run_blktrace(trace, device):
-    args = [ "blktrace", "-d", device, "-o", trace, "-b", "2048" ]
+def run_one_blktrace(trace, device):
+    args = [ "blktrace", "-d", device,  "-o", trace, "-b", "2048" ]
     if not options.full_trace:
         args += [ "-a", "complete" ]
+    print " ".join(args)
     return os.spawnlp(os.P_NOWAIT, *args)
 
-def run_prog(program, trace, device):
-    blktrace_pid = run_blktrace(trace, device)
+def run_blktrace(trace, devices):
+    pids = []
+    for x in devices:
+        tmp = x.replace('/', '.')
+        if len(devices) > 1:
+            this_trace = trace + "." + tmp
+        else:
+            this_trace = trace
+        pids.append(run_one_blktrace(this_trace, x))
+    return pids
+
+def run_prog(program, trace, devices):
+    blktrace_pids = run_blktrace(trace, devices)
+
+    # force some IO, blktrace does timestamps from the first IO
+    if len(devices) > 1:
+        for x in devices:
+            try:
+                os.system("dd if=%s of=/dev/zero bs=16k count=1 iflag=direct > /dev/null 2>&1" % x)
+            except:
+                print "O_DIRECT read from %s failed trying buffered" % x
+                b = file(x).read(1024 * 1024)
+
     sys.stderr.write("running :%s:\n" % program)
     os.system(program)
     sys.stderr.write("done running %s\n" % program)
-    os.kill(blktrace_pid, signal.SIGTERM)
-    pid, err = os.wait()
-    if err:
-        sys.stderr.write("exit due to blktrace failure %d\n" % err)
-        sys.exit(1)
+    for x in blktrace_pids:
+        os.kill(x, signal.SIGTERM)
+        pid, err = os.wait()
+        if err:
+            sys.stderr.write("exit due to blktrace failure %d\n" % err)
+            sys.exit(1)
     sys.stderr.write("blktrace done\n")
 
 def run_blkparse(trace, converters):
-    p = os.popen('blkparse -q -i ' + trace +
-                 ' -f "%a %d %M %m %S %N %s %5T.%9t\n"')
-    data = loaddata(p, converters=converters)
+    tracefiles = []
+    data = numpy.array([])
+    seen = {}
+    print "run_blkparse on %s" % trace
+    if not os.path.exists(trace + "blktrace.0"):
+        dirname = os.path.dirname(trace) or "."
+        files = os.listdir(dirname)
+        for x in files:
+            if x.startswith(trace) and ".blktrace." in x:
+                i = x.rindex('.blktrace.')
+                cur = x[0:i]
+                if cur not in seen:
+                    tracefiles.append(x[0:i])
+                    seen[cur] = 1
+    else:
+        tracefiles.append(trace)
+
+    for x in tracefiles:
+        print "using tracefile %s" % x
+        p = os.popen('blkparse -q -i ' + x +
+                     ' -f "%a %d %M %m %S %N %s %5T.%9t %D\n"')
+        cur = loaddata(p, converters=converters)
+        data = numpy.append(data, cur)
     return data
 
 def shapeit(X):
-    lines = len(X) / 8
-    X.shape = (lines, 8)
+    lines = len(X) / 9
+    X.shape = (lines, 9)
+
+def unshapeit(X):
+    lines = len(X) * 9
+    X.shape = (lines, 1)
 
 def getlabel(i):
     if i < len(options.label):
@@ -593,9 +673,13 @@ def check_for_mencoder():
             return "mencoder"
     return None
 
+def translate_sector(dev, sector):
+    return device_translate[dev] + sector;
+
 usage = "usage: %prog [options]"
 parser = OptionParser(usage=usage)
-parser.add_option("-d", "--device", help="Device for blktrace", default="")
+parser.add_option("-d", "--device", help="Device for blktrace", default=[],
+                  action="append")
 parser.add_option("-t", "--trace", help="blktrace file", default=[],
                   action="append")
 parser.add_option("-p", "--prog", help="exec program", default="")
@@ -664,6 +748,7 @@ if not options.trace:
 converters = {}
 converters[0] = flag2num
 converters[1] = command2num
+converters[8] = dev2num
 
 if options.prog:
     check_for_kernel_feature("DEBUG_FS")
@@ -682,8 +767,30 @@ if options.prog:
 
 data = numpy.array([])
 runs = []
+must_sort = True
+
 for x in options.trace:
+    devices_sector_max = {}
     run = run_blkparse(x, converters)
+
+    device_translate = {}
+    total = 0
+    if len(devices_sector_max) > 1:
+        must_sort = True
+        for x in devices_sector_max:
+            device_translate[x] = total + devices_sector_max[x]
+            total += devices_sector_max[x]
+    shapeit(run)
+    if len(devices_sector_max) > 1:
+        for x in run:
+            sector = x[4]
+            dev = x[8]
+            x[4] = device_translate[dev] + sector
+        
+    sorted = sort_by_time(run)
+    run = sorted
+
+    unshapeit(run)
     runs.append(run)
     data = numpy.append(data, run)
 
@@ -693,6 +800,10 @@ for x in runs:
     if len(x) == 0:
         sys.stderr.write("Empty blktrace run found, exiting\n")
         sys.exit(1)
+
+if must_sort:
+    sorted = sort_by_time(data)
+    data = sorted
 
 # try to drop out the least common data points by creating
 # a historgram of the sectors seen.
