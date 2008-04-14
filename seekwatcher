@@ -1014,7 +1014,10 @@ for x in xrange(1, total_graphs + 1):
     ticks = a.get_yticks()
     ymin, ymax = a.get_ylim()
     for y in ticks[1:]:
-        a.hlines(y, xmin, xmax, linestyle='dashed', alpha=0.5)
+        try:
+            a.hlines(y, xmin, xmax, linestyle='dashed', alpha=0.5)
+        except:
+            a.hlines(y, xmin, xmax, alpha=0.5)
     a.set_ylim(ymin, ymax)
     # set the xlimits to something sane
     a.set_xlim(xmin, xmax)
