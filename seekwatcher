@@ -589,7 +589,9 @@ def run_blkparse(trace, converters):
     if not os.path.exists(trace + "blktrace.0"):
         dirname = os.path.dirname(trace) or "."
         files = os.listdir(dirname)
+        joinname = os.path.dirname(trace) or ""
         for x in files:
+            x = os.path.join(joinname, x)
             if x.startswith(trace) and ".blktrace." in x:
                 i = x.rindex('.blktrace.')
                 cur = x[0:i]
