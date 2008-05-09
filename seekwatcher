@@ -52,7 +52,7 @@
 # Free Software Foundation, Inc., 59 Temple Place - Suite 330,
 # Boston, MA 021110-1307, USA.
 #
-import sys, os, signal, time, commands, tempfile
+import sys, os, signal, time, commands, tempfile, signal
 from optparse import OptionParser
 
 blktrace_only = False
@@ -558,7 +558,20 @@ def run_blktrace(trace, devices):
         pids.append(run_one_blktrace(this_trace, x))
     return pids
 
+blktrace_pids = []
 def run_prog(program, trace, devices):
+    global blktrace_pids
+    def killblktracers(signum, frame):
+        global blktrace_pids
+        cpy = blktrace_pids
+        blktrace_pids = []
+        for x in cpy:
+            os.kill(x, signal.SIGTERM)
+            pid, err = os.wait()
+            if err:
+                sys.stderr.write("exit due to blktrace failure %d\n" % err)
+                sys.exit(1)
+
     blktrace_pids = run_blktrace(trace, devices)
 
     # force some IO, blktrace does timestamps from the first IO
@@ -570,16 +583,16 @@ def run_prog(program, trace, devices):
                 print "O_DIRECT read from %s failed trying buffered" % x
                 b = file(x).read(1024 * 1024)
 
+    signal.signal(signal.SIGTERM, killblktracers)
+    signal.signal(signal.SIGINT, killblktracers)
     sys.stderr.write("running :%s:\n" % program)
     os.system(program)
     sys.stderr.write("done running %s\n" % program)
-    for x in blktrace_pids:
-        os.kill(x, signal.SIGTERM)
-        pid, err = os.wait()
-        if err:
-            sys.stderr.write("exit due to blktrace failure %d\n" % err)
-            sys.exit(1)
+    killblktracers(None, None)
     sys.stderr.write("blktrace done\n")
+
+    signal.signal(signal.SIGTERM, signal.SIG_DFL)
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
 
 def run_blkparse(trace, converters):
     tracefiles = []
