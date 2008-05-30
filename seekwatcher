@@ -826,12 +826,13 @@ sectors = data[:,4]
 sizes = data[:,5]
 ymean = numpy.mean(sectors)
 sectormax = numpy.max(sectors)
+sectormin = numpy.min(sectors)
 
 if not options.zoom or ':' not in options.zoom:
-    def add_range(hist, step, start, size):
+    def add_range(hist, step, sectormin, start, size):
         while size > 0:
-            slot = int(start / step)
-            slot_start = step * slot
+            slot = int((start - sectormin) / step)
+            slot_start = step * slot + sectormin
             if slot >= len(hist) or slot < 0:
                 sys.stderr.write("illegal slot %d start %d step %d\n" %
                                 (slot, start, step))
@@ -845,11 +846,11 @@ if not options.zoom or ':' not in options.zoom:
             start += this_count
         
     hist = [0] * 11
-    step = sectormax / 10
+    step = (sectormax - sectormin) / 10
     for row in data:
         start = row[4]
         size = row[5] / 512
-        add_range(hist, step, start, size)
+        add_range(hist, step, sectormin, start, size)
 
     m = max(hist)
 
@@ -860,16 +861,16 @@ if not options.zoom or ':' not in options.zoom:
     # min and max values looking for the first buckets that have some
     # significant portion of the data
     #
-    yzoommin = maxi * step
+    yzoommin = maxi * step + sectormin
     for x in xrange(0, maxi):
         if hist[x] > hist[maxi] * .05:
-            yzoommin = x * step
+            yzoommin = x * step + sectormin
             break
 
-    yzoommax = (maxi + 1) * step
+    yzoommax = (maxi + 1) * step + sectormin
     for x in xrange(len(hist) - 1, maxi, -1):
         if hist[x] > hist[maxi] * .05:
-            yzoommax = (x + 1) * step
+            yzoommax = (x + 1) * step + sectormin
             break
 else:
     words = options.zoom.split(':')
