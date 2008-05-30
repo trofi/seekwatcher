@@ -382,9 +382,9 @@ def plot_data(ax, rw, data, style, label, alpha=1):
             h[y] = 1
             yield x * x_per_cell
             yield y * y_per_cell
-    xcells = 325.0
+    xcells = 325.0 * options.io_graph_cell_multi
     x_per_cell = (xmax - xmin) / xcells
-    ycells = 80.0
+    ycells = 80.0 * options.io_graph_cell_multi
     y_per_cell = (yzoommax - yzoommin) / ycells
 
     if rw is None:
@@ -406,8 +406,9 @@ def plot_data(ax, rw, data, style, label, alpha=1):
         t.shape = (len(t)/2, 2)
         xdata = t[:,0]
         ydata = t[:,1]
-        lines = ax.plot(t[:,0], t[:,1], 's', mew=0, ms=2,
-                       label=label, alpha=alpha)
+        lines = ax.plot(t[:,0], t[:,1], options.io_graph_dots, mew=0,
+                        ms=options.io_graph_marker_size,
+                        label=label, alpha=alpha)
         return lines
     return []
 
@@ -711,7 +712,11 @@ if not blktrace_only:
                       action="append")
     parser.add_option("", "--dpi", help="dpi", default=120)
     parser.add_option("", "--io-graph-dots", help="Disk IO dot style",
-                      default='.')
+                      default='s')
+    parser.add_option("", "--io-graph-marker-size", help="Disk IO dot size",
+                      default=1.5, type="float")
+    parser.add_option("", "--io-graph-cell-multi", help="Multiplier for cells",
+                      default=2, type="float")
     parser.add_option("-I", "--no-io-graph", help="Don't create an IO graph",
                       default=False, action="store_true")
     parser.add_option("-r", "--rolling-avg",
