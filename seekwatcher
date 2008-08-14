@@ -1011,7 +1011,7 @@ if not options.no_io_graph:
     a.legend(loc=(1.01, 0.5), shadow=True, pad=0.3, numpoints=1,
                   handletextsep = 0.005,
                   labelsep = 0.01,
-                  markerscale = 1.1,
+                  markerscale = 1.1 * (1.5 / options.io_graph_marker_size),
                   prop=FontProperties(size='x-small') )
     a.set_ylim(yzoommin, yzoommax)
 
