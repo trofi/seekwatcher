@@ -78,6 +78,8 @@ class AnnoteFinder:
   connect('button_press_event', af)
   """
 
+  __clickX=0
+  __clickY=0
   def __init__(self, axis=None):
     if axis is None:
       self.axis = gca()
@@ -96,10 +98,13 @@ class AnnoteFinder:
         self.clear()
         draw()
         return
-      clickX = event.xdata
-      clickY = event.ydata
-      if (self.axis is None) or (self.axis==event.inaxes):
-        self.drawAnnote(event.inaxes, clickX, clickY)
+      if event.name == 'button_press_event':
+          self.__clickX = event.xdata
+          self.__clickY = event.ydata
+      elif event.name == 'button_release_event':
+          if (self.axis is None) or (self.axis==event.inaxes):
+              if event.xdata == self.__clickX and event.ydata == self.__clickY:
+                  self.drawAnnote(event.inaxes, self.__clickX, self.__clickY)
     
   def drawAnnote(self, axis, x, y):
     """
@@ -1077,6 +1082,7 @@ if not options.no_io_graph:
 
     af = AnnoteFinder(axis=a)
     connect('button_press_event', af)
+    connect('button_release_event', af)
     a.set_title(options.title + 'Disk IO')
     a.set_ylabel('Disk offset (MB)')
     flag = data[:,0]
