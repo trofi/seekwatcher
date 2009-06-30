@@ -1,0 +1,77 @@
+#!/usr/bin/env python
+
+# Copyright (C) 2009 Novell.  All rights reserved.
+#
+# This program is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public
+# License v2 as published by the Free Software Foundation.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public
+# License along with this program; if not, write to the
+# Free Software Foundation, Inc., 59 Temple Place - Suite 330,
+# Boston, MA 021110-1307, USA.
+#
+# You can use this script to produce files for seekwatcher with
+# IO tagged by PID and / or command. Use option -m <command> to
+# merge processes which have the same command name.
+#
+# Example:
+# tag-by-process -t sda | seekwatcher -f - --only-io-graph
+
+import sys, os, signal, time, commands, tempfile, signal
+from optparse import OptionParser
+
+def loaddata(fh):
+    for i,line in enumerate(fh):
+        if not line.startswith('Q'):
+            continue
+        row = line.split()
+        if options.merge.count(row[10]) > 0:
+            row[9] = row[10]
+        else:
+            row[9] = row[10] + "(" + row[9] + ")"
+        for i in range(1,10):
+            print row[i],
+        print
+
+def run_blkparse(trace):
+    tracefiles = []
+    seen = {}
+    sys.stderr.write("run_blkparse on %s\n" % trace)
+    if not os.path.exists(trace + "blktrace.0"):
+        dirname = os.path.dirname(trace) or "."
+        files = os.listdir(dirname)
+        joinname = os.path.dirname(trace) or ""
+        for x in files:
+            x = os.path.join(joinname, x)
+            if x.startswith(trace) and ".blktrace." in x:
+                i = x.rindex('.blktrace.')
+                cur = x[0:i]
+                if cur not in seen:
+                    tracefiles.append(x[0:i])
+                    seen[cur] = 1
+    else:
+        tracefiles.append(trace)
+
+    for x in tracefiles:
+        sys.stderr.write("using tracefile %s\n" % x)
+        p = os.popen('blkparse -q -i ' + x +
+             ' -f "%a %d %M %m %S %N %s %5T.%9t %D %p %C\n"')
+        cur = loaddata(p)
+ 
+usage = "usage: %prog [options]"
+parser = OptionParser(usage=usage)
+parser.add_option("-t", "--trace", help="blktrace file", default=[],
+                  action="append")
+parser.add_option("-m", "--merge", help="merge commands with given names",
+                  default=[], action="append")
+
+(options,args) = parser.parse_args()
+
+for x in options.trace:
+    run = run_blkparse(x)
