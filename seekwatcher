@@ -711,7 +711,7 @@ if not blktrace_only:
     parser.add_option("-o", "--output", help="output file", default="trace.png")
     parser.add_option("-l", "--label", help="label", default=[],
                       action="append")
-    parser.add_option("", "--dpi", help="dpi", default=120)
+    parser.add_option("", "--dpi", help="dpi", default=120, type="float")
     parser.add_option("", "--io-graph-dots", help="Disk IO dot style",
                       default='s')
     parser.add_option("", "--io-graph-marker-size", help="Disk IO dot size",
