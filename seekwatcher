@@ -56,6 +56,7 @@ import sys, os, signal, time, commands, tempfile, signal
 from optparse import OptionParser
 
 blktrace_only = False
+tags = { "": 0 }
 
 try:
     from matplotlib import rcParams
@@ -136,9 +137,9 @@ def command2num(com):
     return 2.0
     sys.stderr.write("unknown command %s\n" % com)
 
-def loaddata(fh,delimiter=None, converters=None):
+def loaddata(fh,delimiter=None, converters=None, filter=True):
 
-    def iter(fh, delimiter, converters):
+    def iter(fh, delimiter, converters, filter):
         global devices_sector_max
 
         if converters is None: converters = {}
@@ -149,10 +150,20 @@ def loaddata(fh,delimiter=None, converters=None):
         last_cmd = None
         last_size = None
         last_dev = None
+        last_tag = None
         for i,line in enumerate(fh):
-            if not line.startswith('C'):
+            if filter and not line.startswith('C'):
                 continue
-            row = [converters.get(i,float)(val) for i,val in enumerate(line.split(delimiter))]
+            if not filter:
+                line = "C " + line
+            this_tag = 0
+            row = []
+            for i,val in enumerate(line.split(delimiter)):
+                if i < 9:
+                    row.append(converters.get(i,float)(val))
+                else:
+		    this_tag = tags.setdefault(val, len(tags))
+            row.append(this_tag)
             this_time = row[7]
             this_dev = row[8]
             this_sector = row[4]
@@ -165,7 +176,7 @@ def loaddata(fh,delimiter=None, converters=None):
             if (last_row and this_rw == last_rw and
                 this_dev == last_dev and
                 this_time - last_time < .5 and last_size < 512 and
-                this_sector == last_end):
+                this_sector == last_end and this_tag == last_tag):
                 last_end += this_size
                 last_size += this_size
                 last_row[5] += row[5]
@@ -182,11 +193,12 @@ def loaddata(fh,delimiter=None, converters=None):
             last_end = this_sector + this_size
             last_size = this_size
             last_dev = this_dev
+            last_tag = this_tag
         if last_row:
             for x in last_row:
                 yield x
 
-    X = numpy.fromiter(iter(fh, delimiter, converters), dtype=float)
+    X = numpy.fromiter(iter(fh, delimiter, converters, filter), dtype=float)
     return X
 
 def sort_by_time(data):
@@ -367,7 +379,7 @@ def data_movie(data):
             os.remove(os.path.join(root, name))
     os.rmdir(png_dir)
 
-def plot_data(ax, rw, data, style, label, alpha=1):
+def plot_data(ax, data, style, label, alpha=1):
     def reduce_plot():
         reduce = {}
         skipped = 0
@@ -380,37 +392,48 @@ def plot_data(ax, rw, data, style, label, alpha=1):
             y += 1
             h = reduce.setdefault(x, {})
             h[y] = 1
+            yield rbs[i]
             yield x * x_per_cell
             yield y * y_per_cell
+            yield tg[i]
     xcells = 325.0 * options.io_graph_cell_multi
     x_per_cell = (xmax - xmin) / xcells
     ycells = 80.0 * options.io_graph_cell_multi
     y_per_cell = (yzoommax - yzoommin) / ycells
 
-    if rw is None:
-        if options.reads_only:
-            rw = 0
-        if options.writes_only:
-            rw = 1
-    if rw != None:
-        if options.reads_only and rw != 0:
-            return
-        if options.writes_only and rw != 1:
-            return
-        rbs = data[:,1]
-        data = data[numpy.where(rbs == rw)]
+    rbs = data[:,1]
+    if options.reads_only:
+        data = data[numpy.where(rbs == 0)]
+    if options.writes_only:
+        data = data[numpy.where(rbs == 1)]
+
+    if len(data) == 0:
+        return []
+
     times = data[:,7]
     sectors = data[:,4]
-    if len(times) > 0:
-        t = numpy.fromiter(reduce_plot(), dtype=float)
-        t.shape = (len(t)/2, 2)
-        xdata = t[:,0]
-        ydata = t[:,1]
-        lines = ax.plot(t[:,0], t[:,1], options.io_graph_dots, mew=0,
-                        ms=options.io_graph_marker_size,
-                        label=label, alpha=alpha)
-        return lines
-    return []
+    tg = data[:,9]
+    t = numpy.fromiter(reduce_plot(), dtype=float)
+    t.shape = (len(t)/4, 4)
+    lines = []
+    for tag in tags:
+        at = t[numpy.where(t[:,3] == tags[tag])]
+        if len(at) == 0:
+            continue
+        if not options.writes_only:
+            atr = at[numpy.where(at[:,0] == 0)]
+            lines.extend(ax.plot(atr[:,1], atr[:,2], style, mew=0,
+                                 ms=options.io_graph_marker_size,
+                                 alpha=alpha,
+                                 label=tag + " Reads " + label))
+        if not options.reads_only:
+            atr = at[numpy.where(at[:,0] == 1)]
+            lines.extend(ax.plot(atr[:,1], atr[:,2], style, mew=0,
+                                 ms=options.io_graph_marker_size,
+                                 alpha=alpha,
+                                 label=tag + " Writes " + label))
+    return lines
+
 
 def add_roll(roll, max, num):
     if len(roll) == max:
@@ -625,11 +648,11 @@ def run_blkparse(trace, converters):
     return data
 
 def shapeit(X):
-    lines = len(X) / 9
-    X.shape = (lines, 9)
+    lines = len(X) / 10
+    X.shape = (lines, 10)
 
 def unshapeit(X):
-    lines = len(X) * 9
+    lines = len(X) * 10
     X.shape = (lines, 1)
 
 def getlabel(i):
@@ -693,11 +716,48 @@ def check_for_mencoder():
 def translate_sector(dev, sector):
     return device_translate[dev] + sector;
 
+def process_input(input, type):
+    global devices_sector_max
+    global device_translate
+    global must_sort
+
+    devices_sector_max = {}
+    if type == 0:
+        run = run_blkparse(x, converters)
+    elif type == 1:
+        if input == "-":
+            p = sys.stdin
+        else:
+            p = open(input, 'r')
+        run = loaddata(p, converters=converters, filter=False)
+
+    device_translate = {}
+    total = 0
+    if len(devices_sector_max) > 1:
+        must_sort = True
+        for x in devices_sector_max:
+            device_translate[x] = total + devices_sector_max[x]
+            total += devices_sector_max[x]
+    shapeit(run)
+    if len(devices_sector_max) > 1:
+        for x in run:
+            sector = x[4]
+            dev = x[8]
+            x[4] = device_translate[dev] + sector
+        
+    sorted = sort_by_time(run)
+    run = sorted
+
+    unshapeit(run)
+    return run
+
 usage = "usage: %prog [options]"
 parser = OptionParser(usage=usage)
 parser.add_option("-d", "--device", help="Device for blktrace", default=[],
                   action="append")
 parser.add_option("-t", "--trace", help="blktrace file", default=[],
+                  action="append")
+parser.add_option("-f", "--file", help="parsed blktrace file", default=[],
                   action="append")
 parser.add_option("-p", "--prog", help="exec program", default="")
 parser.add_option("", "--full-trace", help="Don't filter blktrace events",
@@ -764,7 +824,7 @@ if not blktrace_only:
         rcParams['interactive'] = 'False'
     from pylab import *
 
-if not options.trace:
+if not options.trace and not options.file:
     parser.print_help()
     sys.exit(1)
 
@@ -791,29 +851,16 @@ if options.prog:
 data = numpy.array([])
 runs = []
 must_sort = True
+devices_sector_max = {}
+device_translate = {}
 
 for x in options.trace:
-    devices_sector_max = {}
-    run = run_blkparse(x, converters)
+    run = process_input(x, 0)
+    runs.append(run)
+    data = numpy.append(data, run)
 
-    device_translate = {}
-    total = 0
-    if len(devices_sector_max) > 1:
-        must_sort = True
-        for x in devices_sector_max:
-            device_translate[x] = total + devices_sector_max[x]
-            total += devices_sector_max[x]
-    shapeit(run)
-    if len(devices_sector_max) > 1:
-        for x in run:
-            sector = x[4]
-            dev = x[8]
-            x[4] = device_translate[dev] + sector
-        
-    sorted = sort_by_time(run)
-    run = sorted
-
-    unshapeit(run)
+for x in options.file:
+    run = process_input(x, 1)
     runs.append(run)
     data = numpy.append(data, run)
 
@@ -998,8 +1045,7 @@ if not options.no_io_graph:
     a = subplot(total_graphs, 1, 1)
     for i in xrange(len(runs)):
         label = getlabel(i)
-        plot_data(a, 0, runs[i], options.io_graph_dots, label + " Read")
-        plot_data(a, 1, runs[i], options.io_graph_dots, label + " Write")
+        plot_data(a, runs[i], options.io_graph_dots, label)
 
     af = AnnoteFinder(axis=a)
     connect('button_press_event', af)
@@ -1023,7 +1069,7 @@ if not options.no_io_graph:
                  markerscale = 1.1,
                  prop=FontProperties(size='x-small') )
     else:
-        a.legend(loc=(0,-0.25), ncol=5, columnspacing=0.1,
+        a.legend(loc=(0,-0.25), ncol=4, columnspacing=0.1,
                  shadow=True, borderpad=0.3, numpoints=1,
                  handletextpad = 0.005,
                  labelspacing = 0.01,
