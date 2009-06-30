@@ -268,7 +268,6 @@ def data_movie(data):
     figindex = 0
 
     png_dir = tempfile.mkdtemp(dir=os.path.dirname(options.output))
-    movie_name = options.output
     fname, fname_ext = os.path.splitext(options.output)
     fname = os.path.join(png_dir, fname);
 
@@ -369,7 +368,7 @@ def data_movie(data):
         figindex += 1
     a.hold(True)
 
-    if mencoder_found == "png2theora" and movie_name.endswith('.ogg'):
+    if mencoder == "png2theora":
         os.system("png2theora -o %s %s" % (movie_name, fname) + '-%06d.png')
     else:
         os.system("mencoder mf://%s*.png -mf type=png:fps=%d -of mpeg -ovc lavc -lavcopts vcodec=mpeg2video:vbitrate=%s -oac copy -o %s" % (fname, movie_fps, options.movie_vbitrate, movie_name))
@@ -701,17 +700,20 @@ def check_for_debugfs():
         sys.stderr.write("debugfs not mounted (/sys/kernel/debug)\n")
         sys.exit(1)
 
-def check_for_mencoder():
+def check_for_mencoder(encoder_prog=all):
+    # check for either supported media encoder when no arguments specified
+    if encoder_prog == all:
+        r1 = check_for_mencoder("png2theora")
+        if r1:
+            return True
+        return check_for_mencoder("mencoder")
+
     dirs = os.getenv('PATH', os.path.defpath).split(os.path.pathsep)
     for dir in dirs:
-        fname = os.path.join(dir, 'png2theora')
+        fname = os.path.join(dir, encoder_prog)
         if os.path.isfile(fname):
-            return "png2theora"
-    for dir in dirs:
-        fname = os.path.join(dir, 'mencoder')
-        if os.path.isfile(fname):
-            return "mencoder"
-    return None
+            return True
+    return False
 
 def translate_sector(dev, sector):
     return device_translate[dev] + sector;
@@ -827,6 +829,32 @@ if not blktrace_only:
 if not options.trace and not options.file:
     parser.print_help()
     sys.exit(1)
+
+# Validate the movie parameters
+if mencoder_found and options.movie:
+    movie_name = options.output
+    # Default to creating an ogg using png2theora.  This can be changed by
+    # specifying an output file name that ends in mpg.
+    if options.output.endswith((".mpg", ".mpeg", ".MPG", ".MPEG")):
+        if not check_for_mencoder("mencoder"):
+            print "mencoder required for encoding mpegs. Try using -o fname.ogg"
+            sys.exit(1)
+        mencoder = "mencoder"
+    elif options.output.endswith((".ogg", ".OGG")):
+        if check_for_mencoder("png2theora"):
+            mencoder = "png2theora"
+        else:
+            # We can't get here unless mencoder is set to either mencoder or
+            # png2theora, so if the encoder isn't the latter...
+            mencoder = "mencoder"
+    elif options.output.endswith((".png")):
+        # This is the path we take if no output filename is specified.
+        movie_name = "trace.ogg"
+        mencoder = "png2theora"
+    else:
+        print "Error: please specify an output file name that ends in " \
+              ".ogg or .mpg"
+	sys.exit(1)
 
 converters = {}
 converters[0] = flag2num
