@@ -1016,17 +1016,28 @@ if not options.no_io_graph:
     ticks.append(yzoommax)
     a.set_yticks(ticks)
     a.set_yticklabels( [ str(int(x/2048)) for x in ticks ] )
-    a.legend(loc=(1.01, 0.5), shadow=True, pad=0.3, numpoints=1,
-                  handletextsep = 0.005,
-                  labelsep = 0.01,
+    if not options.only_io_graph:
+        a.legend(loc=(1.01, 0.5), shadow=True, pad=0.3, numpoints=1,
+                 handletextsep = 0.005,
+                 labelsep = 0.01,
+                 markerscale = 1.1,
+                 prop=FontProperties(size='x-small') )
+    else:
+        a.legend(loc=(0,-0.25), ncol=5, columnspacing=0.1,
+                 shadow=True, borderpad=0.3, numpoints=1,
+                 handletextpad = 0.005,
+                 labelspacing = 0.01,
+                 markerscale = 1.1,
+                 prop=FontProperties(size='x-small') )
+        subplots_adjust(bottom=0.2)
                   markerscale = 1.1 * (1.5 / options.io_graph_marker_size),
-                  prop=FontProperties(size='x-small') )
     a.set_ylim(yzoommin, yzoommax)
 
-# squeeze the graphs over to the left a bit to make room for the
-# legends
-#
-subplots_adjust(right = 0.8, hspace=0.3)
+if not options.only_io_graph:
+    # squeeze the graphs over to the left a bit to make room for the
+    # legends
+    #
+    subplots_adjust(right = 0.8, hspace=0.3)
 
 # finally, some global bits for each subplot
 for x in xrange(1, total_graphs + 1):
