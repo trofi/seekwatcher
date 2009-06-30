@@ -209,7 +209,7 @@ def data_movie(data):
         sector = sector / sectors_per_cell
         yval = floor(sector / num_cells)
         xval = sector % num_cells
-        return (xval, yval)
+        return (xval + 5, yval + 5)
 
     def add_frame(prev, ins, max):
         if len(prev) > max:
@@ -542,7 +542,8 @@ def plot_seek_count(ax, rw, data, style, label, alpha=1):
     return ax.plot(times, counts, style, label=label, alpha=alpha)
 
 def run_one_blktrace(trace, device):
-    args = [ "blktrace", "-d", device,  "-o", trace, "-b", "2048" ]
+    #args = [ "blktrace", "-d", device,  "-o", trace, "-b", "16384" ]
+    args = [ "blktrace", "-d", device,  "-o", trace ]
     if not options.full_trace:
         args += [ "-a", "complete" ]
     print " ".join(args)
@@ -714,7 +715,7 @@ if not blktrace_only:
     parser.add_option("", "--io-graph-dots", help="Disk IO dot style",
                       default='s')
     parser.add_option("", "--io-graph-marker-size", help="Disk IO dot size",
-                      default=1.5, type="float")
+                      default=0.7, type="float")
     parser.add_option("", "--io-graph-cell-multi", help="Multiplier for cells",
                       default=2, type="float")
     parser.add_option("-I", "--no-io-graph", help="Don't create an IO graph",
@@ -920,7 +921,7 @@ if mencoder_found and options.movie:
 f = figure(figsize=(8,6))
 
 if options.title:
-    options.title += "\n\n"
+    options.title += "\n"
 
 # Throughput goes at the botoom
 a = subplot(total_graphs, 1, total_graphs)
