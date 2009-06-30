@@ -720,6 +720,8 @@ if not blktrace_only:
                       default=2, type="float")
     parser.add_option("-I", "--no-io-graph", help="Don't create an IO graph",
                       default=False, action="store_true")
+    parser.add_option("", "--only-io-graph", help="Create only IO graph",
+                      default=False, action="store_true");
     parser.add_option("-r", "--rolling-avg",
                   help="Rolling average for seeks and throughput (in seconds)",
                   default=None)
@@ -911,6 +913,8 @@ times = 0
 
 if options.no_io_graph:
     total_graphs = 2
+elif options.only_io_graph:
+    total_graphs = 1
 else:
     total_graphs = 3
 
@@ -923,72 +927,75 @@ f = figure(figsize=(8,6))
 if options.title:
     options.title += "\n"
 
-# Throughput goes at the botoom
-a = subplot(total_graphs, 1, total_graphs)
-for i in xrange(len(runs)):
-    label = getlabel(i)
-    plot_throughput(a, None, runs[i], '-', label)
-
+# Prepare ticks
 # make sure the final second goes on the x axes
 ticks = list(arange(xmin, xmax, xmax/8))
 ticks.append(xmax)
 xticks = ticks
-a.set_xticks(ticks)
-a.set_yticklabels( [ "%d" % x for x in ticks ])
 if ticks[-1] < 4:
     xticklabels = [ "%.1f" % x for x in ticks ]
 else:
     xticklabels = [ "%d" % x for x in ticks ]
-a.set_xticklabels(xticklabels)
 
-# cut down the number of yticks to something more reasonable
-ticks = a.get_yticks()
-ticks = list(arange(0, ticks[-1] + ticks[-1]/4, ticks[-1]/4))
-a.set_yticks(ticks)
+if not options.only_io_graph:
+    # Throughput goes at the botoom
+    a = subplot(total_graphs, 1, total_graphs)
+    for i in xrange(len(runs)):
+        label = getlabel(i)
+        plot_throughput(a, None, runs[i], '-', label)
 
-if ticks[-1] < 4:
-    a.set_yticklabels( [ "%.1f" % x for x in ticks ])
-else:
-    a.set_yticklabels( [ "%d" % x for x in ticks ])
+    a.set_xticks(xticks)
+    a.set_yticklabels( [ "%d" % x for x in xticks ])
+    a.set_xticklabels(xticklabels)
 
-a.set_title('Throughput')
-a.set_ylabel('MB/s')
+    # cut down the number of yticks to something more reasonable
+    ticks = a.get_yticks()
+    ticks = list(arange(0, ticks[-1] + ticks[-1]/4, ticks[-1]/4))
+    a.set_yticks(ticks)
 
-# the bottom graph gets xticks, set it here
-a.set_xlabel('Time (seconds)')
-if options.label:
-    a.legend(loc=(1.01, 0.5), shadow=True, pad=0.5, numpoints=2,
-                  handletextsep = 0.005,
-                  labelsep = 0.01,
-                  prop=FontProperties(size='x-small') )
+    if ticks[-1] < 4:
+        a.set_yticklabels( [ "%.1f" % x for x in ticks ])
+    else:
+        a.set_yticklabels( [ "%d" % x for x in ticks ])
 
-# next is the seek count graph
-a = subplot(total_graphs, 1, total_graphs - 1)
-for i in xrange(len(runs)):
-    label = getlabel(i)
-    plot_seek_count(a, None, runs[i], '-', label)
+    a.set_title('Throughput')
+    a.set_ylabel('MB/s')
 
-# cut down the number of yticks to something more reasonable
-ticks = a.get_yticks()
-ticks = list(arange(0, ticks[-1] + ticks[-1]/4, ticks[-1]/4))
-a.set_yticks(ticks)
-a.set_yticklabels( [ str(int(x)) for x in ticks ])
+    # the bottom graph gets xticks, set it here
+    a.set_xlabel('Time (seconds)')
+    if options.label:
+        a.legend(loc=(1.01, 0.5), shadow=True, pad=0.5, numpoints=2,
+                      handletextsep = 0.005,
+                      labelsep = 0.01,
+                      prop=FontProperties(size='x-small') )
 
-if options.no_io_graph and options.title:
-    a.set_title(options.title + 'Seek Count')
-else:
-    a.set_title('Seek Count')
+    # next is the seek count graph
+    a = subplot(total_graphs, 1, total_graphs - 1)
+    for i in xrange(len(runs)):
+        label = getlabel(i)
+        plot_seek_count(a, None, runs[i], '-', label)
 
-a.set_ylabel('Seeks / sec')
-if options.label:
-    a.legend(loc=(1.01, 0.5), shadow=True, pad=0.5, numpoints=2,
-                  handletextsep = 0.005,
-                  labelsep = 0.01,
-                  prop=FontProperties(size='x-small') )
+    # cut down the number of yticks to something more reasonable
+    ticks = a.get_yticks()
+    ticks = list(arange(0, ticks[-1] + ticks[-1]/4, ticks[-1]/4))
+    a.set_yticks(ticks)
+    a.set_yticklabels( [ str(int(x)) for x in ticks ])
+
+    if options.no_io_graph and options.title:
+        a.set_title(options.title + 'Seek Count')
+    else:
+        a.set_title('Seek Count')
+
+    a.set_ylabel('Seeks / sec')
+    if options.label:
+        a.legend(loc=(1.01, 0.5), shadow=True, pad=0.5, numpoints=2,
+                      handletextsep = 0.005,
+                      labelsep = 0.01,
+                      prop=FontProperties(size='x-small') )
 
 # and the optional IO graph
 if not options.no_io_graph:
-    a = subplot(total_graphs, 1, total_graphs - 2)
+    a = subplot(total_graphs, 1, 1)
     for i in xrange(len(runs)):
         label = getlabel(i)
         plot_data(a, 0, runs[i], options.io_graph_dots, label + " Read")
