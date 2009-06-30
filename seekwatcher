@@ -730,7 +730,7 @@ def process_input(input, type):
 
     devices_sector_max = {}
     if type == 0:
-        run = run_blkparse(x, converters)
+        run = run_blkparse(input, converters)
     elif type == 1:
         if input == "-":
             p = sys.stdin
@@ -1107,10 +1107,9 @@ if not options.no_io_graph:
                  shadow=True, borderpad=0.3, numpoints=1,
                  handletextpad = 0.005,
                  labelspacing = 0.01,
-                 markerscale = 1.1,
+                 markerscale = 1.1 * (1.5 / options.io_graph_marker_size),
                  prop=FontProperties(size='x-small') )
         subplots_adjust(bottom=0.2)
-                  markerscale = 1.1 * (1.5 / options.io_graph_marker_size),
     a.set_ylim(yzoommin, yzoommax)
 
 if not options.only_io_graph:
