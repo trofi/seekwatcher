@@ -57,6 +57,8 @@ from optparse import OptionParser
 
 blktrace_only = False
 tags = { "": 0 }
+found_queue = False
+found_completion = False
 
 try:
     from matplotlib import rcParams
@@ -146,6 +148,8 @@ def loaddata(fh,delimiter=None, converters=None, filter=True):
 
     def iter(fh, delimiter, converters, filter):
         global devices_sector_max
+        global found_completion
+        global found_queue
 
         if converters is None: converters = {}
         last_sector = None
@@ -157,10 +161,17 @@ def loaddata(fh,delimiter=None, converters=None, filter=True):
         last_dev = None
         last_tag = None
         for i,line in enumerate(fh):
-            if filter and not line.startswith('C'):
+            if filter and not line.startswith('Q') and not \
+                    line.startswith('C'):
                 continue
             if not filter:
                 line = "C " + line
+
+            if not found_completion and line.startswith('C'):
+                found_completion = True
+            if not found_queue and line.startswith('Q'):
+                found_queue = True
+
             this_tag = 0
             row = []
             for i,val in enumerate(line.split(delimiter)):
@@ -411,6 +422,11 @@ def plot_data(ax, data, style, label, alpha=1):
     if options.writes_only:
         data = data[numpy.where(rbs == 1)]
 
+    # prefer to plot the completion event
+    if found_completion and found_queue:
+        ops = data[:,0]
+        data = data[numpy.where(ops == 1)]
+
     if len(data) == 0:
         return []
 
@@ -487,6 +503,11 @@ def plot_throughput(ax, rw, data, style, label, alpha=1):
         rbs = data[:,1]
         data = data[numpy.where(rbs == rw)]
 
+    # prefer to plot the completion event
+    if found_completion and found_queue:
+        ops = data[:,0]
+        data = data[numpy.where(ops == 1)]
+
     if len(data) == 0:
         return
 
@@ -557,6 +578,11 @@ def plot_seek_count(ax, rw, data, style, label, alpha=1):
         rbs = data[:,1]
         data = data[numpy.where(rbs == rw)]
 
+    # prefer to plot the queue event
+    if found_completion and found_queue:
+        ops = data[:,0]
+        data = data[numpy.where(ops == 0)]
+
     if len(data) == 0:
         return
 
@@ -572,7 +598,7 @@ def run_one_blktrace(trace, device):
     #args = [ "blktrace", "-d", device,  "-o", trace, "-b", "16384" ]
     args = [ "blktrace", "-d", device,  "-o", trace ]
     if not options.full_trace:
-        args += [ "-a", "complete" ]
+        args += [ "-a", "queue", "-a", "complete" ]
     print " ".join(args)
     return os.spawnlp(os.P_NOWAIT, *args)
 

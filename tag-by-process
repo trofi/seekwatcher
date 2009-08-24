@@ -43,7 +43,7 @@ def run_blkparse(trace):
     tracefiles = []
     seen = {}
     sys.stderr.write("run_blkparse on %s\n" % trace)
-    if not os.path.exists(trace + "blktrace.0"):
+    if not os.path.exists(trace + ".blktrace.0"):
         dirname = os.path.dirname(trace) or "."
         files = os.listdir(dirname)
         joinname = os.path.dirname(trace) or ""
