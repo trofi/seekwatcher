@@ -640,7 +640,8 @@ def plot_seek_count(ax, rw, data, style, label, alpha=1):
 
 def run_one_blktrace(trace, device):
     #args = [ "blktrace", "-d", device,  "-o", trace, "-b", "16384" ]
-    args = [ "blktrace", "-d", device,  "-o", trace ]
+    args = [ "blktrace", "-d", device,  "-o", trace, "-D",
+            options.blktrace_destination ]
     if not options.full_trace:
         args += [ "-a", "queue", "-a", "complete", "-a", "issue" ]
     print " ".join(args)
@@ -697,14 +698,17 @@ def run_blkparse(trace, converters):
     tracefiles = []
     data = numpy.array([])
     seen = {}
-    print "run_blkparse on %s" % trace
-    if not os.path.exists(trace + "blktrace.0"):
-        dirname = os.path.dirname(trace) or "."
+    trace_dir = options.blktrace_destination
+    full_trace_name = os.path.join(trace_dir, trace)
+
+    # use the exact trace name if it is a match
+    if not os.path.exists(full_trace_name + ".blktrace.0"):
+        dirname = os.path.dirname(full_trace_name) or "."
         files = os.listdir(dirname)
-        joinname = os.path.dirname(trace) or ""
+        joinname = os.path.dirname(full_trace_name) or ""
         for x in files:
             x = os.path.join(joinname, x)
-            if x.startswith(trace) and ".blktrace." in x:
+            if x.startswith(full_trace_name) and ".blktrace." in x:
                 i = x.rindex('.blktrace.')
                 cur = x[0:i]
                 if cur not in seen:
@@ -714,8 +718,8 @@ def run_blkparse(trace, converters):
         tracefiles.append(trace)
 
     for x in tracefiles:
-        print "using tracefile %s" % x
-        p = os.popen('blkparse -q -i ' + x +
+        print "using tracefile %s" % os.path.join(trace_dir, x)
+        p = os.popen('blkparse -q -D ' + trace_dir + ' -i ' + x +
                      ' -f "%a %d %M %m %S %N %s %5T.%9t %D\n"')
         cur = loaddata(p, converters=converters)
         data = numpy.append(data, cur)
@@ -826,6 +830,8 @@ usage = "usage: %prog [options]"
 parser = OptionParser(usage=usage)
 parser.add_option("-d", "--device", help="Device for blktrace", default=[],
                   action="append")
+parser.add_option("-D", "--blktrace-destination",
+        help="Destination for blktrace", default=".")
 parser.add_option("-t", "--trace", help="blktrace file", default=[],
                   action="append")
 parser.add_option("-f", "--file", help="parsed blktrace file", default=[],
