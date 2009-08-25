@@ -329,7 +329,7 @@ def data_movie(data):
     tput_ax = axes([ 0.10, 0.19, .85, .09 ])
     seek_ax = axes([ 0.10, 0.07, .85, .09 ])
 
-    plot_seek_count(seek_ax, None, data, '-', None)
+    plot_seek_count(seek_ax, None, data, [0,0,0], '-', None)
     ticks = seek_ax.get_yticks()
     ticks = list(arange(0, ticks[-1] + ticks[-1]/3, ticks[-1]/3))
     seek_ax.set_yticks(ticks)
@@ -338,7 +338,7 @@ def data_movie(data):
     seek_ax.set_xlabel('Time (seconds)', fontsize='x-small')
     seek_ax.grid(True)
 
-    plot_throughput(tput_ax, None, data, '-', None)
+    plot_throughput(tput_ax, None, data, [0,0,0], '-', None)
 
     # cut down the number of yticks to something more reasonable
     ticks = tput_ax.get_yticks()
@@ -512,8 +512,8 @@ def add_roll(roll, max, num):
         total += x
     return total / len(roll)
 
-def plot_throughput(ax, rw, data, style, label, alpha=1):
-    def tput_iter(sizes,times):
+def plot_throughput(ax, rw, data, stats, style, label, alpha=1):
+    def tput_iter(sizes,times, total_tput):
         bytes = 0.0
         sec = None
         roll = []
@@ -526,6 +526,7 @@ def plot_throughput(ax, rw, data, style, label, alpha=1):
                 sec = cur_time
                 continue
             if sec != cur_time:
+                total_tput[0] += bytes
                 avg = add_roll(roll, options.rolling_avg, bytes)
                 yield (sec, avg / (1024 * 1024))
                 bytes = 0
@@ -535,6 +536,7 @@ def plot_throughput(ax, rw, data, style, label, alpha=1):
         if scale > 0 and scale < 1:
             bytes += sizes[-1]
             bytes = bytes / scale
+            total_tput[0] += bytes
             avg = add_roll(roll, options.rolling_avg, bytes)
             yield(ceil(times[-1]), avg / (1024 * 1024))
 
@@ -559,14 +561,19 @@ def plot_throughput(ax, rw, data, style, label, alpha=1):
 
     times = numpy.array([])
     tput = numpy.array([])
-    for x,y in tput_iter(data[:,5], data[:,7]):
+    total_tput = [ 0 ]
+    for x,y in tput_iter(data[:,5], data[:,7], total_tput):
         times = numpy.append(times, x)
         tput = numpy.append(tput, y)
 
+    total_tput[0] /= 1024 * 1024
+    stats[1] = round(total_tput[0] / times[-1], 2)
+
     return ax.plot(times, tput, style, label=label, alpha=alpha)
 
-def plot_seek_count(ax, rw, data, style, label, alpha=1):
-    def iter(sectors, times):
+def plot_seek_count(ax, rw, data, stats, style, label, alpha=1):
+
+    def iter(sectors, times, total_seeks):
         count = 0.0
         last_dev = {}
         # last holds an array (sector, size)
@@ -596,6 +603,7 @@ def plot_seek_count(ax, rw, data, style, label, alpha=1):
                 diff = abs((last + last_size) - sector)
                 if diff > 128:
                     count += 1
+                    total_seeks[0] += 1
             last_dev[dev] = (sector, io_size)
 
         scale = times[-1] - sec
@@ -606,8 +614,11 @@ def plot_seek_count(ax, rw, data, style, label, alpha=1):
             diff = abs((last + last_size) - sector)
             if diff > 128:
                 count += 1
+                total_seeks[0] += 1
             count = count / scale
             avg = add_roll(roll, options.rolling_avg, count)
+            if sec == None:
+                sec = 0
             yield(ceil(times[-1]), avg)
 
     if rw is None:
@@ -632,10 +643,12 @@ def plot_seek_count(ax, rw, data, style, label, alpha=1):
 
     times = numpy.array([])
     counts = numpy.array([])
-    for x,y in iter(data[:,4], data[:,7]):
+    total_seeks = [0]
+    for x,y in iter(data[:,4], data[:,7], total_seeks):
         times = numpy.append(times, x)
         counts = numpy.append(counts, y)
 
+    stats[0] = round(total_seeks[0] / times[-1], 2)
     return ax.plot(times, counts, style, label=label, alpha=alpha)
 
 def run_one_blktrace(trace, device):
@@ -802,7 +815,7 @@ def translate_run(run):
         for x in run:
             sector = x[4]
             dev = x[8]
-            x[4] = device_translate[dev] + sector + 1000000
+            x[4] = device_translate[dev] + sector
         
     if must_sort:
         sorted = sort_by_time(run)
@@ -980,18 +993,22 @@ if len(devices_sector_max) > 1:
     keys = devices_sector_max.keys()
     keys.sort()
     for x in keys:
-        device_translate[x] = total + devices_sector_max[x] + 2000000
-        total += devices_sector_max[x]
+        device_translate[x] = total
+        total += devices_sector_max[x] + 1000000
 
+stats = []
 for i in xrange(len(runs)):
     if len(runs[i]) == 0:
         sys.stderr.write("Empty blktrace run found, exiting\n")
         sys.exit(1)
     runs[i] = translate_run(runs[i])
 
+    stats.append([0, 0, round(runs[i][-1][7], 2)])
+
     unshapeit(runs[i])
     data = numpy.append(data, runs[i])
     shapeit(runs[i])
+
 
 # data includes offset numbers from all the runs.  This us to scale the
 # whole IO graph.
@@ -1112,10 +1129,10 @@ else:
 
 if not options.only_io_graph:
     # Throughput goes at the botoom
-    a = subplot(total_graphs, 1, total_graphs)
+    a = subplot(total_graphs + 1, 1, total_graphs)
     for i in xrange(len(runs)):
         label = getlabel(i)
-        plot_throughput(a, None, runs[i], '-', label)
+        plot_throughput(a, None, runs[i], stats[i], '-', label)
 
     a.set_xticks(xticks)
     a.set_yticklabels( [ "%d" % x for x in xticks ])
@@ -1143,10 +1160,10 @@ if not options.only_io_graph:
                       prop=FontProperties(size='x-small') )
 
     # next is the seek count graph
-    a = subplot(total_graphs, 1, total_graphs - 1)
+    a = subplot(total_graphs + 1, 1, total_graphs - 1)
     for i in xrange(len(runs)):
         label = getlabel(i)
-        plot_seek_count(a, None, runs[i], '-', label)
+        plot_seek_count(a, None, runs[i], stats[i], '-', label)
 
     # cut down the number of yticks to something more reasonable
     ticks = a.get_yticks()
@@ -1168,7 +1185,7 @@ if not options.only_io_graph:
 
 # and the optional IO graph
 if not options.no_io_graph:
-    a = subplot(total_graphs, 1, 1)
+    a = subplot(total_graphs + 1, 1, 1)
     for i in xrange(len(runs)):
         label = getlabel(i)
         plot_data(a, runs[i], options.io_graph_dots, label)
@@ -1228,9 +1245,17 @@ if not options.only_io_graph:
     #
     subplots_adjust(right = 0.8, hspace=0.3)
 
+table_labels = [ getlabel(x) for x in xrange(len(runs)) ]
+a = subplot(total_graphs + 1, 1, total_graphs + 1, frameon=False)
+a.table(cellText=stats, rowLabels=table_labels,
+        colLabels = ('Avg Seeks/sec', 'Avg MB/s', 'Run time'),
+        loc=(0.5, 0.99))
+a.set_xticks([])
+a.set_yticks([])
+
 # finally, some global bits for each subplot
 for x in xrange(1, total_graphs + 1):
-    a = subplot(total_graphs, 1, x)
+    a = subplot(total_graphs + 1, 1, x)
 
     # turn off the xtick labels on the graphs above the bottom
     if not options.interactive and x < total_graphs:
@@ -1254,5 +1279,6 @@ for x in xrange(1, total_graphs + 1):
 if not options.interactive:
     print "saving graph to %s" % options.output
     savefig(options.output, dpi=options.dpi, orientation='landscape')
+
 show()
 
