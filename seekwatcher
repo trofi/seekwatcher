@@ -243,26 +243,20 @@ def select_data_op(data, seeks):
     ops = data[:,0]
     if seeks:
         if found_issued:
-            print "seek, using issued"
             ret = data[numpy.where(ops == 4)]
-        elif found_queued:
-            print "seek, using queued"
+        elif found_queue:
             ret = data[numpy.where(ops == 0)]
         else:
-            print "seek, using all"
             ret = data
             
     else:
         # when we aren't tracking seeks, we want to show the IO in
         # the order the device returned it
         if found_completion:
-            print "no seek, using completion"
             ret = data[numpy.where(ops == 1)]
         elif found_issued:
-            print "no seek, using issued"
             ret = data[numpy.where(ops == 4)]
         else:
-            print "no seek, using all"
             ret = data
     return ret
 
