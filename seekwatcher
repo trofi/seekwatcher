@@ -1140,7 +1140,7 @@ if not options.only_io_graph:
 
     # cut down the number of yticks to something more reasonable
     ticks = a.get_yticks()
-    ticks = list(arange(0, ticks[-1] + ticks[-1]/4, ticks[-1]/4))
+    ticks = list(arange(0, ticks[-1] + ticks[-1]/8, ticks[-1]/8))
     a.set_yticks(ticks)
 
     if ticks[-1] < 4:
@@ -1167,7 +1167,7 @@ if not options.only_io_graph:
 
     # cut down the number of yticks to something more reasonable
     ticks = a.get_yticks()
-    ticks = list(arange(0, ticks[-1] + ticks[-1]/4, ticks[-1]/4))
+    ticks = list(arange(0, ticks[-1] + ticks[-1]/6, ticks[-1]/4))
     a.set_yticks(ticks)
     a.set_yticklabels( [ str(int(x)) for x in ticks ])
 
@@ -1263,6 +1263,10 @@ for x in xrange(1, total_graphs + 1):
     elif options.interactive:
         a.set_xticks(xticks)
         a.set_xticklabels(xticklabels)
+
+    if x <= total_graphs:
+        for t in a.yaxis.get_majorticklabels():
+            t.set_fontsize(8)
 
     # create dashed lines for each ytick
     ticks = a.get_yticks()
