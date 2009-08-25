@@ -59,6 +59,7 @@ blktrace_only = False
 tags = { "": 0 }
 found_queue = False
 found_completion = False
+found_issued = False
 
 try:
     from matplotlib import rcParams
@@ -133,6 +134,8 @@ def flag2num(flag):
         return 1.0
     if flag == 'U':
         return 2.0
+    if flag == 'D':
+        return 4.0
     return 3.0
     sys.stderr.write("unknown flag %s\n" %flag)
 
@@ -150,6 +153,7 @@ def loaddata(fh,delimiter=None, converters=None, filter=True):
         global devices_sector_max
         global found_completion
         global found_queue
+        global found_issued
 
         if converters is None: converters = {}
         last_sector = None
@@ -162,6 +166,7 @@ def loaddata(fh,delimiter=None, converters=None, filter=True):
         last_tag = None
         for i,line in enumerate(fh):
             if filter and not line.startswith('Q') and not \
+                    line.startswith('D') and not \
                     line.startswith('C'):
                 continue
             if not filter:
@@ -171,6 +176,8 @@ def loaddata(fh,delimiter=None, converters=None, filter=True):
                 found_completion = True
             if not found_queue and line.startswith('Q'):
                 found_queue = True
+            if not found_issued and line.startswith('D'):
+                found_issued = True
 
             this_tag = 0
             row = []
@@ -229,6 +236,36 @@ def sort_by_time(data):
     shapeit(X)
     return X
 
+def select_data_op(data, seeks):
+    # when we're graphing seeks, the most accurate version is going to
+    # be the issued operation, otherwise try for queue ops, otherwise
+    # give up and go with completion
+    ops = data[:,0]
+    if seeks:
+        if found_issued:
+            print "seek, using issued"
+            ret = data[numpy.where(ops == 4)]
+        elif found_queued:
+            print "seek, using queued"
+            ret = data[numpy.where(ops == 0)]
+        else:
+            print "seek, using all"
+            ret = data
+            
+    else:
+        # when we aren't tracking seeks, we want to show the IO in
+        # the order the device returned it
+        if found_completion:
+            print "no seek, using completion"
+            ret = data[numpy.where(ops == 1)]
+        elif found_issued:
+            print "no seek, using issued"
+            ret = data[numpy.where(ops == 4)]
+        else:
+            print "no seek, using all"
+            ret = data
+    return ret
+
 def data_movie(data):
     def xycalc(sector):
         if sector < yzoommin or sector > yzoommax:
@@ -265,10 +302,9 @@ def data_movie(data):
                 plotone(a, writex, writey, color)
             alpha += 0.1
 
+
     # prefer to plot the completion event
-    if found_completion and found_queue:
-        ops = data[:,0]
-        data = data[numpy.where(ops == 1)]
+    data = select_data_op(data, False)
     
     options.movie_cell_size = float(options.movie_cell_size)
     num_cells = 600 / options.movie_cell_size
@@ -404,7 +440,17 @@ def plot_data(ax, data, style, label, alpha=1):
     def reduce_plot():
         reduce = {}
         skipped = 0
+        last_dev = {}
         for i in xrange(len(times)):
+            dev = data[i][8]
+            sector = sectors[i]
+            io_size = data[i][5] / 512
+            last, last_size = last_dev.get(dev, (None, None))
+            last_dev[dev] = (sector, io_size)
+            if last and options.only_io_graph_seeks:
+                diff = abs((last + last_size) - sector)
+                if diff < 128:
+                    continue
             x = floor(times[i] / x_per_cell)
             y = floor(sectors[i] / y_per_cell)
             if x in reduce and y in reduce[x]:
@@ -429,9 +475,11 @@ def plot_data(ax, data, style, label, alpha=1):
         data = data[numpy.where(rbs == 1)]
 
     # prefer to plot the completion event
-    if found_completion and found_queue:
-        ops = data[:,0]
-        data = data[numpy.where(ops == 1)]
+    # unless we're only graphing seeks
+    if options.only_io_graph_seeks:
+        data = select_data_op(data, True)
+    else:
+        data = select_data_op(data, False)
 
     if len(data) == 0:
         return []
@@ -510,9 +558,7 @@ def plot_throughput(ax, rw, data, style, label, alpha=1):
         data = data[numpy.where(rbs == rw)]
 
     # prefer to plot the completion event
-    if found_completion and found_queue:
-        ops = data[:,0]
-        data = data[numpy.where(ops == 1)]
+    data = select_data_op(data, False)
 
     if len(data) == 0:
         return
@@ -585,9 +631,7 @@ def plot_seek_count(ax, rw, data, style, label, alpha=1):
         data = data[numpy.where(rbs == rw)]
 
     # prefer to plot the queue event
-    if found_completion and found_queue:
-        ops = data[:,0]
-        data = data[numpy.where(ops == 0)]
+    data = select_data_op(data, True)
 
     if len(data) == 0:
         return
@@ -604,7 +648,7 @@ def run_one_blktrace(trace, device):
     #args = [ "blktrace", "-d", device,  "-o", trace, "-b", "16384" ]
     args = [ "blktrace", "-d", device,  "-o", trace ]
     if not options.full_trace:
-        args += [ "-a", "queue", "-a", "complete" ]
+        args += [ "-a", "queue", "-a", "complete", "-a", "issue" ]
     print " ".join(args)
     return os.spawnlp(os.P_NOWAIT, *args)
 
@@ -814,6 +858,9 @@ if not blktrace_only:
     parser.add_option("-I", "--no-io-graph", help="Don't create an IO graph",
                       default=False, action="store_true")
     parser.add_option("", "--only-io-graph", help="Create only IO graph",
+                      default=False, action="store_true");
+    parser.add_option("-s", "--only-io-graph-seeks",
+                        help="Only plot seeks on the IO graph",
                       default=False, action="store_true");
     parser.add_option("-r", "--rolling-avg",
                   help="Rolling average for seeks and throughput (in seconds)",
