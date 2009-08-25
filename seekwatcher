@@ -178,7 +178,7 @@ def loaddata(fh,delimiter=None, converters=None, filter=True):
                 if i < 9:
                     row.append(converters.get(i,float)(val))
                 else:
-		    this_tag = tags.setdefault(val, len(tags))
+                    this_tag = tags.setdefault(val, len(tags))
             row.append(this_tag)
             this_time = row[7]
             this_dev = row[8]
@@ -244,7 +244,7 @@ def data_movie(data):
             del prev[0]
         prev.append(ins)
 
-    def graphit(a, prev):
+    def graphit(a, prev,):
         def plotone(a, x, y, color):
             a.plot(x, y, 's', color=color, mfc=color,
                    mec=color, markersize=options.movie_cell_size)
@@ -264,6 +264,11 @@ def data_movie(data):
                 color = greenmap(alpha)
                 plotone(a, writex, writey, color)
             alpha += 0.1
+
+    # prefer to plot the completion event
+    if found_completion and found_queue:
+        ops = data[:,0]
+        data = data[numpy.where(ops == 1)]
     
     options.movie_cell_size = float(options.movie_cell_size)
     num_cells = 600 / options.movie_cell_size
@@ -377,6 +382,7 @@ def data_movie(data):
         line2 = tput_ax.axvline(x=end, color='k')
         tput_ax.set_xlim(xmin, xmax)
         seek_ax.set_xlim(xmin, xmax)
+
         print "start %.2f secs end %.2f secs frame %d" % (start, end, figindex)
         f.savefig("%s-%.6d.%s" % (fname, figindex, "png"), dpi=options.dpi)
         line.set_linestyle('None')
@@ -749,12 +755,23 @@ def check_for_mencoder(encoder_prog=all):
 def translate_sector(dev, sector):
     return device_translate[dev] + sector;
 
+def translate_run(run):
+    if len(devices_sector_max) > 1:
+        for x in run:
+            sector = x[4]
+            dev = x[8]
+            x[4] = device_translate[dev] + sector + 1000000
+        
+    if must_sort:
+        sorted = sort_by_time(run)
+        return sorted
+    return run
+
 def process_input(input, type):
     global devices_sector_max
     global device_translate
     global must_sort
 
-    devices_sector_max = {}
     if type == 0:
         run = run_blkparse(input, converters)
     elif type == 1:
@@ -764,24 +781,7 @@ def process_input(input, type):
             p = open(input, 'r')
         run = loaddata(p, converters=converters, filter=False)
 
-    device_translate = {}
-    total = 0
-    if len(devices_sector_max) > 1:
-        must_sort = True
-        for x in devices_sector_max:
-            device_translate[x] = total + devices_sector_max[x]
-            total += devices_sector_max[x]
     shapeit(run)
-    if len(devices_sector_max) > 1:
-        for x in run:
-            sector = x[4]
-            dev = x[8]
-            x[4] = device_translate[dev] + sector
-        
-    sorted = sort_by_time(run)
-    run = sorted
-
-    unshapeit(run)
     return run
 
 usage = "usage: %prog [options]"
@@ -916,19 +916,39 @@ device_translate = {}
 for x in options.trace:
     run = process_input(x, 0)
     runs.append(run)
-    data = numpy.append(data, run)
 
 for x in options.file:
     run = process_input(x, 1)
     runs.append(run)
-    data = numpy.append(data, run)
 
-shapeit(data)
-for x in runs:
-    shapeit(x)
-    if len(x) == 0:
+# if our traces included more than one device,
+# map each device to its own offset starting from zero.
+#
+if len(devices_sector_max) > 1:
+    must_sort = True
+    total = 0
+
+    # the keys are the device major/minor numbers and by sorting them
+    # we make sure the devices are in non-random order in the output
+    keys = devices_sector_max.keys()
+    keys.sort()
+    for x in keys:
+        device_translate[x] = total + devices_sector_max[x] + 2000000
+        total += devices_sector_max[x]
+
+for i in xrange(len(runs)):
+    if len(runs[i]) == 0:
         sys.stderr.write("Empty blktrace run found, exiting\n")
         sys.exit(1)
+    runs[i] = translate_run(runs[i])
+
+    unshapeit(runs[i])
+    data = numpy.append(data, runs[i])
+    shapeit(runs[i])
+
+# data includes offset numbers from all the runs.  This us to scale the
+# whole IO graph.
+shapeit(data)
 
 if must_sort:
     sorted = sort_by_time(data)
@@ -1122,11 +1142,28 @@ if not options.no_io_graph:
     ticks.append(yzoommax)
     a.set_yticks(ticks)
     a.set_yticklabels( [ str(int(x/2048)) for x in ticks ] )
+
+    # if more than one device is in this graph, add a line so
+    # we can tell where each device starts and ends.
+    #
+    ll = device_translate.items()
+    if len(ll) > 1:
+        for x in xrange(len(ll)):
+            dev, val = ll[x]
+            a.axhline(val, lw="0.1", color='black')
+            a.text(xticks[-1] + .10, val, dev,
+                     fontproperties=FontProperties(size='x-small') )
+
+        legend_pos = 1.07
+    else:
+        legend_pos = 1.01
+
     if not options.only_io_graph:
-        a.legend(loc=(1.01, 0.5), shadow=True, borderpad=0.3, numpoints=1,
+        a.legend(loc=(legend_pos, 0.8), shadow=True, borderpad=0.3,
+                numpoints=1,
                  handletextpad = 0.005,
                  labelspacing = 0.01,
-                 markerscale = 1.1,
+                 markerscale = 1.1 * (1.5 / options.io_graph_marker_size),
                  prop=FontProperties(size='x-small') )
     else:
         a.legend(loc=(0,-0.25), ncol=4, columnspacing=0.1,
