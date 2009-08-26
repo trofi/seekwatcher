@@ -345,7 +345,7 @@ def data_movie(data):
     tput_ax.set_xticks([])
     tput_ax.grid(True)
 
-    if ticks[-1] < 3:
+    if ticks[-1] - ticks[0] < 3:
         tput_ax.set_yticklabels( [ "%.1f" % x for x in ticks ],
                                 fontsize='x-small')
     else:
@@ -1202,7 +1202,6 @@ else:
         yzoommax = min(sectormax, float(words[1]) * 2048)
 
 sizes = 0
-flags = [ x[:,0] for x in runs ]
 times = data[:,7]
 xmin = numpy.min(times)
 xmax = numpy.max(times)
@@ -1220,7 +1219,6 @@ if options.xzoom:
         xmax = words[1]
 
 sectors = 0
-flags = 0
 completed = 0
 times = 0
 
@@ -1292,7 +1290,7 @@ total_graphs = len(graphs)
 ticks = list(arange(xmin, xmax, xmax/8))
 ticks.append(xmax)
 xticks = ticks
-if ticks[-1] < 4:
+if xmax - xmin < 8:
     xticklabels = [ "%.1f" % x for x in ticks ]
 else:
     xticklabels = [ "%d" % x for x in ticks ]
@@ -1334,7 +1332,6 @@ if plot:
             a.axhline(val, lw=0.1, color='black')
             a.text(xticks[-1] + .10, val, dev,
                      fontproperties=FontProperties(size='x-small') )
-
         legend_pos = 1.07
     else:
         legend_pos = 1.01
@@ -1375,7 +1372,6 @@ if plot:
         plot_throughput(a, None, runs[i], stats[i], '-', label)
 
     a.set_xticks(xticks)
-    a.set_yticklabels( [ "%d" % x for x in xticks ])
     a.set_xticklabels(xticklabels)
 
     # cut down the number of yticks to something more reasonable
@@ -1383,7 +1379,7 @@ if plot:
     ticks = list(arange(0, ticks[-1] + ticks[-1]/8, ticks[-1]/8))
     a.set_yticks(ticks)
 
-    if ticks[-1] < 4:
+    if ticks[-1] - ticks[0] < 8:
         a.set_yticklabels( [ "%.1f" % x for x in ticks ])
     else:
         a.set_yticklabels( [ "%d" % x for x in ticks ])
@@ -1411,7 +1407,6 @@ if plot:
         plot_iops(a, None, runs[i], stats[i], '-', label)
 
     a.set_xticks(xticks)
-    a.set_yticklabels( [ "%d" % x for x in xticks ])
     a.set_xticklabels(xticklabels)
 
     # cut down the number of yticks to something more reasonable
@@ -1419,15 +1414,15 @@ if plot:
     ticks = list(arange(0, ticks[-1] + ticks[-1]/8, ticks[-1]/8))
     a.set_yticks(ticks)
 
-    if ticks[-1] < 4:
+    if ticks[-1] - ticks[0] < 8:
         a.set_yticklabels( [ "%.1f" % x for x in ticks ])
     else:
         a.set_yticklabels( [ "%d" % x for x in ticks ])
 
     if plot[2] == 1:
-        a.set_title(options.title + 'IOP')
+        a.set_title(options.title + 'IOP/s')
     else:
-        a.set_title('IOP')
+        a.set_title('IOP/s')
     a.set_ylabel('IOP / sec')
 
     # the bottom graph gets xticks, set it here
