@@ -538,15 +538,16 @@ def plot_iops(ax, rw, data, stats, style, label, alpha=1):
                 count = 0
                 sec = cur_time
             count += 1
-        scale = xmax - sec
+        lastx = min(xmax, times[-1])
+        scale = lastx - sec
         if scale > 0 and scale < 1:
             count += 1
             total_iops[0] += count
             avg = add_roll(roll, options.rolling_avg, count)
-            yield(xmax, count)
+            yield(ceil(lastx), count)
         elif count:
             avg = add_roll(roll, options.rolling_avg, count)
-            yield(xmax, count)
+            yield(ceil(lastx), count)
 
     if rw is None:
         if options.reads_only:
@@ -604,16 +605,18 @@ def plot_throughput(ax, rw, data, stats, style, label, alpha=1):
                 bytes = 0
                 sec = cur_time
             bytes += size
-        scale = xmax - sec
+
+        lastx = min(xmax, times[-1])
+        scale = lastx - sec
         if scale > 0 and scale < 1:
             bytes += sizes[-1]
             bytes = bytes / scale
             total_tput[0] += bytes
             avg = add_roll(roll, options.rolling_avg, bytes)
-            yield(xmax, avg / (1024 * 1024))
+            yield(ceil(lastx), avg / (1024 * 1024))
         elif bytes:
             avg = add_roll(roll, options.rolling_avg, bytes)
-            yield(xmax, avg / (1024 * 1024))
+            yield(ceil(lastx), avg / (1024 * 1024))
 
     if rw is None:
         if options.reads_only:
@@ -686,7 +689,8 @@ def plot_seek_count(ax, rw, data, stats, style, label, legend_colors, alpha=1):
                     total_seeks[0] += 1
             last_dev[dev] = (sector, io_size)
 
-        scale = xmax - sec
+        lastx = min(xmax, times[-1])
+        scale = lastx - sec
         if scale > 0 and scale < 1:
             dev = data[-1][8]
             last, last_size = last_dev[dev]
@@ -699,12 +703,12 @@ def plot_seek_count(ax, rw, data, stats, style, label, legend_colors, alpha=1):
             avg = add_roll(roll, options.rolling_avg, count)
             if sec == None:
                 sec = 0
-            yield(xmax, avg)
+            yield(ceil(lastx), avg)
         elif count:
             avg = add_roll(roll, options.rolling_avg, count)
             if sec == None:
                 sec = 0
-            yield(xmax, avg)
+            yield(ceil(lastx), avg)
 
     if rw is None:
         if options.reads_only:
