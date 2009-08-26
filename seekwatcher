@@ -953,7 +953,6 @@ if not blktrace_only:
 (options,args) = parser.parse_args()
 
 if not blktrace_only:
-    rcParams['numerix'] = 'numpy'
     if options.interactive:
         rcParams['backend'] = options.backend
         rcParams['interactive'] = 'True'
@@ -1176,9 +1175,11 @@ else:
 legend_colors  = {}
 if not options.no_io_graph:
     a = subplot(total_graphs + 1, 1, 1)
+    all_lines = []
     for i in xrange(len(runs)):
         label = getlabel(i)
-        plot_data(a, runs[i], options.io_graph_dots, label, legend_colors)
+        all_lines += plot_data(a, runs[i], options.io_graph_dots, label,
+                                legend_colors)
 
     af = AnnoteFinder(axis=a)
     connect('button_press_event', af)
@@ -1212,21 +1213,30 @@ if not options.no_io_graph:
     else:
         legend_pos = 1.01
 
+    # matplotlib has a markerscale option on the legend, but it
+    # is ignored.  So we explicitly set the marker size before creating
+    # the lenged and then set it back when we're done.
+    #
+    for x in all_lines:
+        x.set_markersize(3)
+
     if not options.only_io_graph:
         a.legend(loc=(legend_pos, 0.8), shadow=True, borderpad=0.3,
                 numpoints=1,
                  handletextpad = 0.005,
                  labelspacing = 0.01,
-                 markerscale = 1.1 * (1.5 / options.io_graph_marker_size),
                  prop=FontProperties(size='x-small') )
     else:
         a.legend(loc=(0,-0.25), ncol=4, columnspacing=0.1,
                  shadow=True, borderpad=0.3, numpoints=1,
                  handletextpad = 0.005,
                  labelspacing = 0.01,
-                 markerscale = 1.1 * (1.5 / options.io_graph_marker_size),
                  prop=FontProperties(size='x-small') )
         subplots_adjust(bottom=0.2)
+
+    # our legend is generated, set the marker size correctly again
+    for x in all_lines:
+        x.set_markersize(options.io_graph_marker_size)
     a.set_ylim(yzoommin, yzoommax)
 
 if not options.only_io_graph:
