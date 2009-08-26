@@ -516,6 +516,67 @@ def add_roll(roll, max, num):
         total += x
     return total / len(roll)
 
+def plot_iops(ax, rw, data, stats, style, label, alpha=1):
+    def iter(sizes, times, total_iops):
+        count = 0.0
+        sec = None
+        roll = []
+        for x in xrange(len(sizes)):
+            size = sizes[x]
+            cur_time = floor(times[x])
+            if sec == None:
+                avg = add_roll(roll, options.rolling_avg, 0.0)
+                yield (0.0, avg)
+                sec = cur_time
+                continue
+            if sec != cur_time:
+                total_iops[0] += count
+                avg = add_roll(roll, options.rolling_avg, count)
+                yield (sec, avg)
+                count = 0
+                sec = cur_time
+            count += 1
+        scale = times[-1] - sec
+        if scale > 0 and scale < 1:
+            count += 1
+            total_iops[0] += count
+            avg = add_roll(roll, options.rolling_avg, count)
+            yield(ceil(times[-1]), count)
+
+    if rw is None:
+        if options.reads_only:
+            rw = 0
+        if options.writes_only:
+            rw = 1
+    if rw != None:
+        if options.reads_only and rw != 0:
+            return
+        if options.writes_only and rw != 1:
+            return
+        rbs = data[:,1]
+        data = data[numpy.where(rbs == rw)]
+
+    # prefer to plot the completion event
+    data = select_data_op(data, False)
+
+    if len(data) == 0:
+        return
+
+    times = numpy.array([])
+    tput = numpy.array([])
+    total_iops = [ 0 ]
+    for x,y in iter(data[:,5], data[:,7], total_iops):
+        times = numpy.append(times, x)
+        tput = numpy.append(tput, y)
+
+    stats[2] = round(total_iops[0] / times[-1], 2)
+
+    if label and label in legend_colors:
+        return ax.plot(times, tput, style, label=label, alpha=alpha,
+                color=legend_colors[label])
+    else:
+        return ax.plot(times, tput, style, label=label, alpha=alpha)
+
 def plot_throughput(ax, rw, data, stats, style, label, alpha=1):
     def tput_iter(sizes,times, total_tput):
         bytes = 0.0
@@ -850,6 +911,10 @@ def process_input(input, type):
     shapeit(run)
     return run
 
+# find either the highest or lowest value in stats
+# for a given column and change that cell in the table
+# read.  To find the   highest use find_max = True, lowest
+# use find_max = False
 def highlight_row(stats, cells, col, num_rows, find_max):
 
     if num_rows == 1:
@@ -874,6 +939,9 @@ def highlight_row(stats, cells, col, num_rows, find_max):
         cell = cells[(x + 1, col)]
         cell.get_text().set_color('red')
 
+# Fixes up font sizes and does highlights for the
+# best value in each column
+#
 def format_table_cells(stats, cells, num_rows):
     for key,cell in cells.items():
         pt = cell.get_fontsize()
@@ -882,7 +950,15 @@ def format_table_cells(stats, cells, num_rows):
 
     highlight_row(stats, cells, 0, num_rows, True)
     highlight_row(stats, cells, 1, num_rows, True)
-    highlight_row(stats, cells, 2, num_rows, False)
+    highlight_row(stats, cells, 2, num_rows, True)
+    highlight_row(stats, cells, 3, num_rows, False)
+
+# if a given label should be graphed, this returns the subplot number.
+def should_graph(graphs, label):
+    for x in graphs:
+        if label == x[1]:
+            return len(graphs), 1, x[0]
+    return None
 
 usage = "usage: %prog [options]"
 parser = OptionParser(usage=usage)
@@ -913,10 +989,13 @@ if not blktrace_only:
                       default=0.7, type="float")
     parser.add_option("", "--io-graph-cell-multi", help="Multiplier for cells",
                       default=2, type="float")
-    parser.add_option("-I", "--no-io-graph", help="Don't create an IO graph",
-                      default=False, action="store_true")
-    parser.add_option("", "--only-io-graph", help="Create only IO graph",
-                      default=False, action="store_true");
+    parser.add_option("-O", "--only-graph",
+         help="Add a single graph to the output (io, tput, seek, iops, stats)",
+         default=[], action="append")
+    parser.add_option("-N", "--no-graph",
+         help="Remove a single graph (io, tput, seek, iops, stats)",
+         default=[], action="append")
+                        
     parser.add_option("-s", "--only-io-graph-seeks",
                         help="Only plot seeks on the IO graph",
                       default=False, action="store_true");
@@ -934,6 +1013,8 @@ if not blktrace_only:
                       default=False, action="store_true")
     parser.add_option("-W", "--writes-only", help="Graph only writes",
                       default=False, action="store_true")
+    parser.add_option("-F", "--figure-size", help="Figure size (8x6)",
+                      default="8x10")
 
     mencoder_found = check_for_mencoder()
     if mencoder_found:
@@ -1047,7 +1128,7 @@ for i in xrange(len(runs)):
         sys.exit(1)
     runs[i] = translate_run(runs[i])
 
-    stats.append([0, 0, round(runs[i][-1][7], 2)])
+    stats.append([0, 0, 0, round(runs[i][-1][7], 2)])
 
     unshapeit(runs[i])
     data = numpy.append(data, runs[i])
@@ -1145,21 +1226,64 @@ flags = 0
 completed = 0
 times = 0
 
-if options.no_io_graph:
-    total_graphs = 2
-elif options.only_io_graph:
-    total_graphs = 1
+graphs = [ [1, 'io'], [2, 'tput'], [3, 'seek'], [4, 'iops'], [5, 'stats'] ]
+#graphs = [ [1, 'io'], [2, 'tput'], [3, 'seek'], [5, 'stats'] ]
+
+# fix up our array of which graphs to print
+if options.only_graph:
+    new_graphs = []
+    for x in options.only_graph:
+        for g in graphs:
+            if x == g[1]:
+                new_graphs.append(g)
+    graphs = new_graphs
+
+if options.no_graph:
+    for x in options.no_graph:
+        i = 0
+        while i < len(graphs):
+            if x == graphs[i][1]:
+                del graphs[i]
+                break
+            i += 1
+
+# sorting the array gets the subplot indexes back in the
+# correct order, but they may be too high.  The next loop
+# corrects the actual values
+graphs.sort()
+total = 1
+# now correct the subplot indexes in the array
+for x in graphs:
+    x[0] = total
+    total += 1
+
+# the bottom graph gets the xticks label,
+# but we don't want it to be the stats table
+if graphs[-1][1] == 'stats':
+    if len(graphs) > 1:
+        bottom_graph = graphs[-2][0]
+    else:
+        bottom_graph = 0
 else:
-    total_graphs = 3
+    bottom_graph = graphs[-1][0]
 
 if mencoder_found and options.movie:
     data_movie(runs[0])
     sys.exit(1)
 
-f = figure(figsize=(8,6))
+try:
+    sizes = options.figure_size.split('x')
+except:
+    print "Invalid figure size %s, using 8x10" % options.figure_size
+    sizes = ["8", "6" ]
+
+sizes = [ int(x) for x in sizes ]
+f = figure(figsize=(sizes[0], sizes[1]))
 
 if options.title:
     options.title += "\n"
+
+total_graphs = len(graphs)
 
 # Prepare ticks
 # make sure the final second goes on the x axes
@@ -1173,8 +1297,9 @@ else:
 
 # and the optional IO graph
 legend_colors  = {}
-if not options.no_io_graph:
-    a = subplot(total_graphs + 1, 1, 1)
+plot = should_graph(graphs, 'io')
+if plot:
+    a = subplot(*plot)
     all_lines = []
     for i in xrange(len(runs)):
         label = getlabel(i)
@@ -1220,28 +1345,25 @@ if not options.no_io_graph:
     for x in all_lines:
         x.set_markersize(3)
 
-    if not options.only_io_graph:
-        a.legend(loc=(legend_pos, 0.8), shadow=True, borderpad=0.3,
-                numpoints=1,
-                 handletextpad = 0.005,
-                 labelspacing = 0.01,
-                 prop=FontProperties(size='x-small') )
-    else:
-        a.legend(loc=(0,-0.25), ncol=4, columnspacing=0.1,
-                 shadow=True, borderpad=0.3, numpoints=1,
-                 handletextpad = 0.005,
-                 labelspacing = 0.01,
-                 prop=FontProperties(size='x-small') )
-        subplots_adjust(bottom=0.2)
+    a.legend(loc=(legend_pos, 0.8), shadow=True, borderpad=0.3,
+            numpoints=1,
+             handletextpad = 0.005,
+             labelspacing = 0.01,
+             prop=FontProperties(size='x-small') )
 
     # our legend is generated, set the marker size correctly again
     for x in all_lines:
         x.set_markersize(options.io_graph_marker_size)
     a.set_ylim(yzoommin, yzoommax)
+    
+    # the bottom graph gets xticks, set it here
+    if plot[2] == bottom_graph:
+        a.set_xlabel('Time (seconds)')
 
-if not options.only_io_graph:
+plot = should_graph(graphs, 'tput')
+if plot:
     # Throughput goes at the botoom
-    a = subplot(total_graphs + 1, 1, total_graphs)
+    a = subplot(*plot)
     for i in xrange(len(runs)):
         label = getlabel(i)
         plot_throughput(a, None, runs[i], stats[i], '-', label)
@@ -1260,19 +1382,61 @@ if not options.only_io_graph:
     else:
         a.set_yticklabels( [ "%d" % x for x in ticks ])
 
-    a.set_title('Throughput')
+    if plot[2] == 1:
+        a.set_title(options.title + 'Throughput')
+    else:
+        a.set_title('Throughput')
     a.set_ylabel('MB/s')
 
     # the bottom graph gets xticks, set it here
-    a.set_xlabel('Time (seconds)')
+    if plot[2] == bottom_graph:
+        a.set_xlabel('Time (seconds)')
     if options.label:
         a.legend(loc=(1.01, 0.5), shadow=True, borderpad=0.5, numpoints=2,
                       handletextpad = 0.005,
                       labelspacing = 0.01,
                       prop=FontProperties(size='x-small') )
 
+plot = should_graph(graphs, 'iops')
+if plot:
+    a = subplot(*plot)
+    for i in xrange(len(runs)):
+        label = getlabel(i)
+        plot_iops(a, None, runs[i], stats[i], '-', label)
+
+    a.set_xticks(xticks)
+    a.set_yticklabels( [ "%d" % x for x in xticks ])
+    a.set_xticklabels(xticklabels)
+
+    # cut down the number of yticks to something more reasonable
+    ticks = a.get_yticks()
+    ticks = list(arange(0, ticks[-1] + ticks[-1]/8, ticks[-1]/8))
+    a.set_yticks(ticks)
+
+    if ticks[-1] < 4:
+        a.set_yticklabels( [ "%.1f" % x for x in ticks ])
+    else:
+        a.set_yticklabels( [ "%d" % x for x in ticks ])
+
+    if plot[2] == 1:
+        a.set_title(options.title + 'IOP')
+    else:
+        a.set_title('IOP')
+    a.set_ylabel('IOP / sec')
+
+    # the bottom graph gets xticks, set it here
+    if plot[2] == bottom_graph:
+        a.set_xlabel('Time (seconds)')
+    if options.label:
+        a.legend(loc=(1.01, 0.5), shadow=True, borderpad=0.5, numpoints=2,
+                      handletextpad = 0.005,
+                      labelspacing = 0.01,
+                      prop=FontProperties(size='x-small') )
+
+plot = should_graph(graphs, 'seek')
+if plot:
     # next is the seek count graph
-    a = subplot(total_graphs + 1, 1, total_graphs - 1)
+    a = subplot(*plot)
     for i in xrange(len(runs)):
         label = getlabel(i)
         plot_seek_count(a, None, runs[i], stats[i], '-', label, legend_colors)
@@ -1283,7 +1447,7 @@ if not options.only_io_graph:
     a.set_yticks(ticks)
     a.set_yticklabels( [ str(int(x)) for x in ticks ])
 
-    if options.no_io_graph and options.title:
+    if plot[2] == 1:
         a.set_title(options.title + 'Seek Count')
     else:
         a.set_title('Seek Count')
@@ -1294,41 +1458,43 @@ if not options.only_io_graph:
                       handletextpad = 0.005,
                       labelspacing = 0.01,
                       prop=FontProperties(size='x-small') )
+    # the bottom graph gets xticks, set it here
+    if plot[2] == bottom_graph:
+        a.set_xlabel('Time (seconds)')
 
-if not options.only_io_graph:
-    # squeeze the graphs over to the left a bit to make room for the
-    # legends
-    #
-    subplots_adjust(right = 0.8, hspace=0.3)
+subplots_adjust(right = 0.8, hspace=0.4)
 
-print legend_colors
+plot = should_graph(graphs, 'stats')
+if plot:
+    # create a table with a summary of all the
+    # results.
+    table_labels = [ getlabel(x) for x in xrange(len(runs)) ]
+    a = subplot(*plot, frameon=False)
+    t = a.table(cellText=stats, rowLabels=table_labels,
+            colLabels = ('Avg Seeks/s', 'Avg MB/s', 'Avg IOP/s', 'Run time'),
+            loc=(0.5, 0.99))
 
-table_labels = [ getlabel(x) for x in xrange(len(runs)) ]
-a = subplot(total_graphs + 1, 1, total_graphs + 1, frameon=False)
-t = a.table(cellText=stats, rowLabels=table_labels,
-        colLabels = ('Avg Seeks/sec', 'Avg MB/s', 'Run time'),
-        loc=(0.5, 0.99))
+    cells = t.get_celld()
+    format_table_cells(stats, cells, len(runs))
 
-cells = t.get_celld()
-format_table_cells(stats, cells, len(runs))
-
-a.set_xticks([])
-a.set_yticks([])
+    if plot[2] == 1:
+        a.set_title(options.title)
+    a.set_xticks([])
+    a.set_yticks([])
 
 # finally, some global bits for each subplot
-for x in xrange(1, total_graphs + 1):
-    a = subplot(total_graphs + 1, 1, x)
+for x in xrange(1, bottom_graph + 1):
+    a = subplot(total_graphs, 1, x)
 
     # turn off the xtick labels on the graphs above the bottom
-    if not options.interactive and x < total_graphs:
+    if not options.interactive and x < bottom_graph:
         a.set_xticklabels([])
     elif options.interactive:
         a.set_xticks(xticks)
         a.set_xticklabels(xticklabels)
 
-    if x <= total_graphs:
-        for t in a.yaxis.get_majorticklabels():
-            t.set_fontsize(8)
+    for t in a.yaxis.get_majorticklabels():
+        t.set_fontsize(8)
 
     # create dashed lines for each ytick
     ticks = a.get_yticks()
