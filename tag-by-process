@@ -21,7 +21,7 @@
 # merge processes which have the same command name.
 #
 # Example:
-# tag-by-process -t sda | seekwatcher -f - --only-io-graph
+# tag-by-process -t sda | seekwatcher -f - -O io
 
 import sys, os, signal, time, commands, tempfile, signal
 from optparse import OptionParser

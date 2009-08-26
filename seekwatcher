@@ -1257,6 +1257,10 @@ for x in graphs:
     x[0] = total
     total += 1
 
+if len(graphs) == 0:
+    print "No graphs selected, exiting"
+    sys.exit(1)
+
 # the bottom graph gets the xticks label,
 # but we don't want it to be the stats table
 if graphs[-1][1] == 'stats':
@@ -1344,11 +1348,16 @@ if plot:
     for x in all_lines:
         x.set_markersize(3)
 
-    a.legend(loc=(legend_pos, 0.8), shadow=True, borderpad=0.3,
-            numpoints=1,
-             handletextpad = 0.005,
-             labelspacing = 0.01,
-             prop=FontProperties(size='x-small') )
+    if total_graphs == 1:
+        a.legend(loc=(-0.1,-0.25), ncol=4, columnspacing=0.1,
+                shadow=True, borderpad=0.3, numpoints=1,
+                handletextpad = 0.005, labelspacing = 0.01,
+                prop=FontProperties(size='x-small') )
+        subplots_adjust(bottom=0.2)
+    else:
+        a.legend(loc=(legend_pos, 0.8), shadow=True, borderpad=0.3,
+                numpoints=1, handletextpad = 0.005, labelspacing = 0.01,
+                prop=FontProperties(size='x-small') )
 
     # our legend is generated, set the marker size correctly again
     for x in all_lines:
