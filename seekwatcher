@@ -839,6 +839,40 @@ def process_input(input, type):
     shapeit(run)
     return run
 
+def highlight_row(stats, cells, col, num_rows, find_max):
+
+    if num_rows == 1:
+        return
+
+    val = 0
+    max_val = 0
+    max = []
+    for row in xrange(0, num_rows):
+        x = stats[row][col]
+        if find_max:
+            if not max or x > max_val:
+                max_val = x
+                max = []
+        else:
+            if not max or x < max_val:
+                max_val = x
+                max = []
+        if x == max_val:
+            max.append(row)
+    for x in max:
+        cell = cells[(x + 1, col)]
+        cell.get_text().set_color('red')
+
+def format_table_cells(stats, cells, num_rows):
+    for key,cell in cells.items():
+        pt = cell.get_fontsize()
+        if (pt > 6):
+            cell.set_fontsize(pt - 1)
+
+    highlight_row(stats, cells, 0, num_rows, True)
+    highlight_row(stats, cells, 1, num_rows, True)
+    highlight_row(stats, cells, 2, num_rows, False)
+
 usage = "usage: %prog [options]"
 parser = OptionParser(usage=usage)
 parser.add_option("-d", "--device", help="Device for blktrace", default=[],
@@ -1247,9 +1281,13 @@ if not options.only_io_graph:
 
 table_labels = [ getlabel(x) for x in xrange(len(runs)) ]
 a = subplot(total_graphs + 1, 1, total_graphs + 1, frameon=False)
-a.table(cellText=stats, rowLabels=table_labels,
+t = a.table(cellText=stats, rowLabels=table_labels,
         colLabels = ('Avg Seeks/sec', 'Avg MB/s', 'Run time'),
         loc=(0.5, 0.99))
+
+cells = t.get_celld()
+format_table_cells(stats, cells, len(runs))
+
 a.set_xticks([])
 a.set_yticks([])
 
