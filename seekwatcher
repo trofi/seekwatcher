@@ -1470,7 +1470,8 @@ if plot:
     # create a table with a summary of all the
     # results.
     table_labels = [ getlabel(x) for x in xrange(len(runs)) ]
-    a = subplot(*plot, frameon=False)
+    a = subplot(*plot)
+    a.set_frame_on(False)
     t = a.table(cellText=stats, rowLabels=table_labels,
             colLabels = ('Avg Seeks/s', 'Avg MB/s', 'Avg IOP/s', 'Run time'),
             loc=(0.5, 0.99))
