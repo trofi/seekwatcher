@@ -380,6 +380,8 @@ def data_movie(data):
             if time < start:
                 print "dropping time %.2f < start %.2f" % (time, start)
                 continue
+            if time > xmax:
+                continue
             datai += 1
             sector = row[4]
             size = int(max(row[5] / 512, 1))
@@ -522,6 +524,8 @@ def plot_iops(ax, rw, data, stats, style, label, alpha=1):
         for x in xrange(len(sizes)):
             size = sizes[x]
             cur_time = floor(times[x])
+            if cur_time > xmax or cur_time < xmin:
+                continue
             if sec == None:
                 avg = add_roll(roll, options.rolling_avg, 0.0)
                 yield (0.0, avg)
@@ -534,12 +538,15 @@ def plot_iops(ax, rw, data, stats, style, label, alpha=1):
                 count = 0
                 sec = cur_time
             count += 1
-        scale = times[-1] - sec
+        scale = xmax - sec
         if scale > 0 and scale < 1:
             count += 1
             total_iops[0] += count
             avg = add_roll(roll, options.rolling_avg, count)
-            yield(ceil(times[-1]), count)
+            yield(xmax, count)
+        elif count:
+            avg = add_roll(roll, options.rolling_avg, count)
+            yield(xmax, count)
 
     if rw is None:
         if options.reads_only:
@@ -567,7 +574,7 @@ def plot_iops(ax, rw, data, stats, style, label, alpha=1):
         times = numpy.append(times, x)
         tput = numpy.append(tput, y)
 
-    stats[2] = round(total_iops[0] / times[-1], 2)
+    stats[2] = round(total_iops[0] / stats[3], 2)
 
     if label and label in legend_colors:
         return ax.plot(times, tput, style, label=label, alpha=alpha,
@@ -583,6 +590,8 @@ def plot_throughput(ax, rw, data, stats, style, label, alpha=1):
         for x in xrange(len(sizes)):
             size = sizes[x]
             cur_time = floor(times[x])
+            if cur_time > xmax or cur_time < xmin:
+                continue
             if sec == None:
                 avg = add_roll(roll, options.rolling_avg, 0.0)
                 yield (0.0, avg)
@@ -595,13 +604,16 @@ def plot_throughput(ax, rw, data, stats, style, label, alpha=1):
                 bytes = 0
                 sec = cur_time
             bytes += size
-        scale = times[-1] - sec
+        scale = xmax - sec
         if scale > 0 and scale < 1:
             bytes += sizes[-1]
             bytes = bytes / scale
             total_tput[0] += bytes
             avg = add_roll(roll, options.rolling_avg, bytes)
-            yield(ceil(times[-1]), avg / (1024 * 1024))
+            yield(xmax, avg / (1024 * 1024))
+        elif bytes:
+            avg = add_roll(roll, options.rolling_avg, bytes)
+            yield(xmax, avg / (1024 * 1024))
 
     if rw is None:
         if options.reads_only:
@@ -630,7 +642,7 @@ def plot_throughput(ax, rw, data, stats, style, label, alpha=1):
         tput = numpy.append(tput, y)
 
     total_tput[0] /= 1024 * 1024
-    stats[1] = round(total_tput[0] / times[-1], 2)
+    stats[1] = round(total_tput[0] / stats[3], 2)
 
     if label and label in legend_colors:
         return ax.plot(times, tput, style, label=label, alpha=alpha,
@@ -655,6 +667,8 @@ def plot_seek_count(ax, rw, data, stats, style, label, legend_colors, alpha=1):
             dev = data[x][8]
             last, last_size = last_dev.get(dev, (None, None))
             cur_time = floor(times[x])
+            if cur_time < xmin or cur_time > xmax:
+                continue
             if sec == None:
                 avg = add_roll(roll, options.rolling_avg, 0.0)
                 yield (0.0, avg)
@@ -672,7 +686,7 @@ def plot_seek_count(ax, rw, data, stats, style, label, legend_colors, alpha=1):
                     total_seeks[0] += 1
             last_dev[dev] = (sector, io_size)
 
-        scale = times[-1] - sec
+        scale = xmax - sec
         if scale > 0 and scale < 1:
             dev = data[-1][8]
             last, last_size = last_dev[dev]
@@ -685,7 +699,12 @@ def plot_seek_count(ax, rw, data, stats, style, label, legend_colors, alpha=1):
             avg = add_roll(roll, options.rolling_avg, count)
             if sec == None:
                 sec = 0
-            yield(ceil(times[-1]), avg)
+            yield(xmax, avg)
+        elif count:
+            avg = add_roll(roll, options.rolling_avg, count)
+            if sec == None:
+                sec = 0
+            yield(xmax, avg)
 
     if rw is None:
         if options.reads_only:
@@ -714,7 +733,7 @@ def plot_seek_count(ax, rw, data, stats, style, label, legend_colors, alpha=1):
         times = numpy.append(times, x)
         counts = numpy.append(counts, y)
 
-    stats[0] = round(total_seeks[0] / times[-1], 2)
+    stats[0] = round(total_seeks[0] / stats[3], 2)
     if label and label in legend_colors:
         return ax.plot(times, counts, style, label=label, alpha=alpha,
                 color=legend_colors[label])
@@ -1221,6 +1240,12 @@ if options.xzoom:
 sectors = 0
 completed = 0
 times = 0
+
+for x in stats:
+    if x[3] > xmax:
+        x[3] = xmax
+    x[3] -= xmin
+    x[3] = round(x[3], 2)
 
 graphs = [ [1, 'io'], [2, 'tput'], [3, 'seek'], [4, 'iops'], [5, 'stats'] ]
 #graphs = [ [1, 'io'], [2, 'tput'], [3, 'seek'], [5, 'stats'] ]
