@@ -1295,7 +1295,6 @@ if ticks[-1] < 4:
 else:
     xticklabels = [ "%d" % x for x in ticks ]
 
-# and the optional IO graph
 legend_colors  = {}
 plot = should_graph(graphs, 'io')
 if plot:
@@ -1330,7 +1329,7 @@ if plot:
     if len(ll) > 1:
         for x in xrange(len(ll)):
             dev, val = ll[x]
-            a.axhline(val, lw="0.1", color='black')
+            a.axhline(val, lw=0.1, color='black')
             a.text(xticks[-1] + .10, val, dev,
                      fontproperties=FontProperties(size='x-small') )
 
