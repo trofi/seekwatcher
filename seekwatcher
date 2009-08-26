@@ -965,7 +965,7 @@ def format_table_cells(stats, cells, num_rows):
         if (pt > 6):
             cell.set_fontsize(pt - 1)
 
-    highlight_row(stats, cells, 0, num_rows, True)
+    highlight_row(stats, cells, 0, num_rows, False)
     highlight_row(stats, cells, 1, num_rows, True)
     highlight_row(stats, cells, 2, num_rows, True)
     highlight_row(stats, cells, 3, num_rows, False)
@@ -1445,10 +1445,10 @@ if plot:
         a.set_yticklabels( [ "%d" % x for x in ticks ])
 
     if plot[2] == 1:
-        a.set_title(options.title + 'IOP/s')
+        a.set_title(options.title + 'IOPs')
     else:
-        a.set_title('IOP/s')
-    a.set_ylabel('IOP / sec')
+        a.set_title('IOPs')
+    a.set_ylabel('IO / sec')
 
     # the bottom graph gets xticks, set it here
     if plot[2] == bottom_graph:
@@ -1498,7 +1498,7 @@ if plot:
     a = subplot(*plot)
     a.set_frame_on(False)
     t = a.table(cellText=stats, rowLabels=table_labels,
-            colLabels = ('Avg Seeks/s', 'Avg MB/s', 'Avg IOP/s', 'Run time'),
+            colLabels = ('Avg Seeks/s', 'Avg MB/s', 'Avg IO/s', 'Run time'),
             loc=(0.5, 0.99))
 
     cells = t.get_celld()
