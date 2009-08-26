@@ -147,9 +147,9 @@ def command2num(com):
     return 2.0
     sys.stderr.write("unknown command %s\n" % com)
 
-def loaddata(fh,delimiter=None, converters=None, filter=True):
+def loaddata(fh,delimiter=None, converters=None):
 
-    def iter(fh, delimiter, converters, filter):
+    def iter(fh, delimiter, converters):
         global devices_sector_max
         global found_completion
         global found_queue
@@ -165,12 +165,10 @@ def loaddata(fh,delimiter=None, converters=None, filter=True):
         last_dev = None
         last_tag = None
         for i,line in enumerate(fh):
-            if filter and not line.startswith('Q') and not \
+            if not line.startswith('Q') and not \
                     line.startswith('D') and not \
                     line.startswith('C'):
                 continue
-            if not filter:
-                line = "C " + line
 
             if not found_completion and line.startswith('C'):
                 found_completion = True
@@ -221,7 +219,7 @@ def loaddata(fh,delimiter=None, converters=None, filter=True):
             for x in last_row:
                 yield x
 
-    X = numpy.fromiter(iter(fh, delimiter, converters, filter), dtype=float)
+    X = numpy.fromiter(iter(fh, delimiter, converters), dtype=float)
     return X
 
 def sort_by_time(data):
@@ -906,7 +904,7 @@ def process_input(input, type):
             p = sys.stdin
         else:
             p = open(input, 'r')
-        run = loaddata(p, converters=converters, filter=False)
+        run = loaddata(p, converters=converters)
 
     shapeit(run)
     return run

@@ -35,7 +35,7 @@ def loaddata(fh):
             row[9] = row[10]
         else:
             row[9] = row[10] + "(" + row[9] + ")"
-        for i in range(1,10):
+        for i in range(0,10):
             print row[i],
         print
 
