@@ -338,7 +338,7 @@ def data_movie(data):
     seek_ax.set_xlabel('Time (seconds)', fontsize='x-small')
     seek_ax.grid(True)
 
-    plot_throughput(tput_ax, None, data, [0,0,0], '-', None, {})
+    plot_throughput(tput_ax, None, data, [0,0,0], '-', None)
 
     # cut down the number of yticks to something more reasonable
     ticks = tput_ax.get_yticks()
