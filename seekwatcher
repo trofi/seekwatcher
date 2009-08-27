@@ -69,6 +69,88 @@ except:
     sys.stderr.write("matplotlib not found, using blktrace only mode\n")
     blktrace_only = True
 
+#
+# the rundata class holds all underlying data used to create each graph.
+# seeks, throughput and iops are calculated once as we load the data
+# in, and then the data is filtered to only include enough for the
+# movies and IO graph.  If we aren't doing the IO graph, the
+# data is stripped almost bare.
+#
+class rundata:
+    def __init__(self):
+        self.seek_hist = {}
+        self.seeks = {}
+        self.tput = {}
+        self.iops = {}
+        self.stats = {}
+        self.last_seek = None
+        self.last_tput = None
+        self.last_iops = None
+        self.last_time = None
+        self.last_line = None
+        self.data = None
+
+    def add_seek(self, data):
+        dev = data[8]
+        sector = data[4]
+        io_size = data[5] / 512
+        cur_time = floor(data[7])
+        last, last_size = self.seek_hist.get(dev, (None, None))
+
+        if last != None:
+            diff = abs((last + last_size) - sector)
+            if diff > 128:
+                old = self.seeks.get(cur_time, 0)
+                self.seeks[cur_time] = old + 1
+        self.seek_hist[dev] = (sector, io_size)
+        self.last_seek = data
+        self.last_time = data[7]
+
+    def add_tput(self, data):
+        io_size = data[5]
+        cur_time = floor(data[7])
+        old = self.tput.get(cur_time, 0)
+        self.tput[cur_time] = old + io_size
+        self.last_tput = data
+        self.last_time = data[7]
+
+    def add_iop(self, data):
+        cur_time = floor(data[7])
+        old = self.iops.get(cur_time, 0)
+        self.iops[cur_time] = old + 1
+        self.last_iops = data
+        self.last_time = data[7]
+
+    def add_line(self, data):
+        op = data[0]
+        self.last_line = data
+
+        # for seeks, we want to use the dispatch event
+        # and if those aren't in the trace we want
+        # the queued event, and if those aren't in
+        # the trace, we want the completion event
+        if op == DISPATCH_EVENT:
+            # dispatch
+            self.add_seek(data)
+        elif op == COMPLETION_EVENT and not found_issued and not found_queue:
+            # completion
+            self.add_seek(data)
+        elif op == QUEUE_EVENT and not found_issued:
+            # queue
+            self.add_seek(data)
+
+        # for tput and iops, we want to use the completion event
+        # otherwise dispatch, otherwise queue
+        if op == COMPLETION_EVENT:
+            self.add_tput(data)
+            self.add_iop(data)
+        elif op == DISPATCH_EVENT and not found_completion:
+            self.add_tput(data)
+            self.add_iop(data)
+        elif op == QUEUE_EVENT and not found_completion and not found_issued:
+            self.add_tput(data)
+            self.add_iop(data)
+
 class AnnoteFinder:
   """
   callback for matplotlib to display an annotation when points are clicked on.  The
@@ -127,15 +209,19 @@ def dev2num(dev):
     s2 = dev.replace(',', '.')
     return float(s2)
 
+QUEUE_EVENT = 0.0
+COMPLETION_EVENT = 1.0
+DISPATCH_EVENT = 4.0
+
 def flag2num(flag):
     if flag == 'Q':
-        return 0.0
+        return QUEUE_EVENT
     if flag == 'C':
-        return 1.0
+        return COMPLETION_EVENT
     if flag == 'U':
         return 2.0
     if flag == 'D':
-        return 4.0
+        return DISPATCH_EVENT
     return 3.0
     sys.stderr.write("unknown flag %s\n" %flag)
 
@@ -147,13 +233,21 @@ def command2num(com):
     return 2.0
     sys.stderr.write("unknown command %s\n" % com)
 
-def loaddata(fh,delimiter=None, converters=None):
+def loaddata(fh, rundata, delimiter=None, converters=None):
+
+    io_plot = should_graph(graphs, 'io')
 
     def iter(fh, delimiter, converters):
         global devices_sector_max
         global found_completion
         global found_queue
         global found_issued
+        global total_lines
+        global total_out
+
+        total_lines = 0
+        total_out = 0
+        first_line = False
 
         if converters is None: converters = {}
         last_sector = None
@@ -185,18 +279,49 @@ def loaddata(fh,delimiter=None, converters=None):
                 else:
                     this_tag = tags.setdefault(val, len(tags))
             row.append(this_tag)
+            this_op = row[0]
             this_time = row[7]
             this_dev = row[8]
             this_sector = row[4]
             this_rw = row[1]
             this_size = row[5] / 512
 
+            total_lines += 1
+            if options.writes_only and this_rw == 0:
+                continue
+            if options.reads_only and this_rw == 1:
+                continue
+
+            rundata.add_line(row)
+
             devices_sector_max[this_dev] = max(this_sector + this_size,
                                     devices_sector_max.get(this_dev, 0));
 
-            if (last_row and this_rw == last_rw and
+            # everything from here on is for the IO graph.
+            # so we try to cut down on the stuff we keep in ram
+            if not io_plot:
+                if not first_line:
+                    for x in rundata.last_line:
+                        yield x
+                    first_line = True
+                continue
+
+            if options.only_io_graph_seeks:
+                if this_op == COMPLETION_EVENT and (found_queue or
+                        found_issued):
+                    continue
+                if this_op == QUEUE_EVENT and found_issued:
+                    continue
+            else:
+                if this_op == QUEUE_EVENT and (found_completion or
+                        found_issued):
+                    continue
+                if this_op == DISPATCH_EVENT and found_completion:
+                    continue
+
+            if (last_row and this_op == last_op and this_rw == last_rw and
                 this_dev == last_dev and
-                this_time - last_time < .5 and last_size < 512 and
+                this_time - last_time < .5 and last_size < 1024 and
                 this_sector == last_end and this_tag == last_tag):
                 last_end += this_size
                 last_size += this_size
@@ -204,10 +329,12 @@ def loaddata(fh,delimiter=None, converters=None):
                 continue
                 
             if last_row:
+                total_out += 1
                 for x in last_row:
                     yield x
                 
             last_row = row
+            last_op = this_op
             last_sector = this_sector
             last_time = this_time
             last_rw = this_rw
@@ -219,7 +346,12 @@ def loaddata(fh,delimiter=None, converters=None):
             for x in last_row:
                 yield x
 
+        if total_out == 0:
+            for x in rundata.last_line:
+                yield x
+
     X = numpy.fromiter(iter(fh, delimiter, converters), dtype=float)
+    print "total lines %d total out %d" % (total_lines, total_out)
     return X
 
 def sort_by_time(data):
@@ -258,7 +390,7 @@ def select_data_op(data, seeks):
             ret = data
     return ret
 
-def data_movie(data):
+def data_movie(run):
     def xycalc(sector):
         if sector < yzoommin or sector > yzoommax:
             return None
@@ -295,8 +427,8 @@ def data_movie(data):
             alpha += 0.1
 
 
-    # prefer to plot the completion event
-    data = select_data_op(data, False)
+    data = run.data
+    times = data[:,7]
     
     options.movie_cell_size = float(options.movie_cell_size)
     num_cells = 600 / options.movie_cell_size
@@ -313,7 +445,6 @@ def data_movie(data):
                                                           secs_per_frame)
     start_second = xmin
 
-    times = data[:,7]
     figindex = 0
 
     png_dir = tempfile.mkdtemp(dir=os.path.dirname(options.output))
@@ -327,7 +458,7 @@ def data_movie(data):
     tput_ax = axes([ 0.10, 0.19, .85, .09 ])
     seek_ax = axes([ 0.10, 0.07, .85, .09 ])
 
-    plot_seek_count(seek_ax, None, data, [0,0,0], '-', None, {})
+    plot_seek_count(seek_ax, run, [0,0,0,0], '-', None, {})
     ticks = seek_ax.get_yticks()
     ticks = list(arange(0, ticks[-1] + ticks[-1]/3, ticks[-1]/3))
     seek_ax.set_yticks(ticks)
@@ -336,7 +467,7 @@ def data_movie(data):
     seek_ax.set_xlabel('Time (seconds)', fontsize='x-small')
     seek_ax.grid(True)
 
-    plot_throughput(tput_ax, None, data, [0,0,0], '-', None)
+    plot_throughput(tput_ax, run, [0,0,0,0], '-', None)
 
     # cut down the number of yticks to something more reasonable
     ticks = tput_ax.get_yticks()
@@ -446,7 +577,7 @@ def plot_data(ax, data, style, label, legend_colors, alpha=1):
                 if diff < 128:
                     continue
             x = floor(times[i] / x_per_cell)
-            y = floor(sectors[i] / y_per_cell)
+            y = floor(sector / y_per_cell)
             if x in reduce and y in reduce[x]:
                 skipped += 1
                 continue
@@ -457,27 +588,13 @@ def plot_data(ax, data, style, label, legend_colors, alpha=1):
             yield x * x_per_cell
             yield y * y_per_cell
             yield tg[i]
+
     xcells = 325.0 * options.io_graph_cell_multi
     x_per_cell = (xmax - xmin) / xcells
     ycells = 80.0 * options.io_graph_cell_multi
     y_per_cell = (yzoommax - yzoommin) / ycells
 
     rbs = data[:,1]
-    if options.reads_only:
-        data = data[numpy.where(rbs == 0)]
-    if options.writes_only:
-        data = data[numpy.where(rbs == 1)]
-
-    # prefer to plot the completion event
-    # unless we're only graphing seeks
-    if options.only_io_graph_seeks:
-        data = select_data_op(data, True)
-    else:
-        data = select_data_op(data, False)
-
-    if len(data) == 0:
-        return []
-
     times = data[:,7]
     sectors = data[:,4]
     tg = data[:,9]
@@ -516,228 +633,113 @@ def add_roll(roll, max, num):
         total += x
     return total / len(roll)
 
-def plot_iops(ax, rw, data, stats, style, label, alpha=1):
-    def iter(sizes, times, total_iops):
-        count = 0.0
-        sec = None
-        roll = []
-        for x in xrange(len(sizes)):
-            size = sizes[x]
-            cur_time = floor(times[x])
-            if cur_time > xmax or cur_time < xmin:
-                continue
-            if sec == None:
-                avg = add_roll(roll, options.rolling_avg, 0.0)
-                yield (0.0, avg)
-                sec = cur_time
-                continue
-            if sec != cur_time:
-                total_iops[0] += count
-                avg = add_roll(roll, options.rolling_avg, count)
-                yield (sec, avg)
-                count = 0
-                sec = cur_time
-            count += 1
-        lastx = min(xmax, times[-1])
-        scale = lastx - sec
-        if scale > 0 and scale < 1:
-            count += 1
-            total_iops[0] += count
-            avg = add_roll(roll, options.rolling_avg, count)
-            yield(ceil(lastx), count)
-        elif count:
-            avg = add_roll(roll, options.rolling_avg, count)
-            yield(ceil(lastx), count)
+def plot_iops(ax, run, stats, style, label, alpha=1):
 
-    if rw is None:
-        if options.reads_only:
-            rw = 0
-        if options.writes_only:
-            rw = 1
-    if rw != None:
-        if options.reads_only and rw != 0:
-            return
-        if options.writes_only and rw != 1:
-            return
-        rbs = data[:,1]
-        data = data[numpy.where(rbs == rw)]
+    times = []
+    counts = []
+    roll = []
+    t = floor(xmin)
+    total = 0
+    last_time = min(xmax, run.last_time)
+    while t <= floor(last_time):
+        val = run.iops.get(t, 0)
+        total += val
+        avg = add_roll(roll, options.rolling_avg, val)
+        counts.append(avg)
+        times.append(t)
+        t += 1
 
-    # prefer to plot the completion event
-    data = select_data_op(data, False)
+    sec = times[-1]
+    scale = last_time - sec
+    data = run.last_iops
+    if scale > 0 and scale < 1:
+        val = counts[-1] + 1
+        val = val / scale
+        avg = add_roll(roll, options.rolling_avg, val)
+        counts.append(avg)
+        times.append(ceil(last_time))
 
-    if len(data) == 0:
-        return
-
-    times = numpy.array([])
-    tput = numpy.array([])
-    total_iops = [ 0 ]
-    for x,y in iter(data[:,5], data[:,7], total_iops):
-        times = numpy.append(times, x)
-        tput = numpy.append(tput, y)
-
-    stats[2] = round(total_iops[0] / stats[3], 2)
+    secs = min(xmax - xmin, run.last_time - xmin)
+    stats[2] = round(total / secs, 2)
 
     if label and label in legend_colors:
-        return ax.plot(times, tput, style, label=label, alpha=alpha,
+        return ax.plot(times, counts, style, label=label, alpha=alpha,
                 color=legend_colors[label])
     else:
-        return ax.plot(times, tput, style, label=label, alpha=alpha)
+        return ax.plot(times, counts, style, label=label, alpha=alpha)
 
-def plot_throughput(ax, rw, data, stats, style, label, alpha=1):
-    def tput_iter(sizes,times, total_tput):
-        bytes = 0.0
-        sec = None
-        roll = []
-        for x in xrange(len(sizes)):
-            size = sizes[x]
-            cur_time = floor(times[x])
-            if cur_time > xmax or cur_time < xmin:
-                continue
-            if sec == None:
-                avg = add_roll(roll, options.rolling_avg, 0.0)
-                yield (0.0, avg)
-                sec = cur_time
-                continue
-            if sec != cur_time:
-                total_tput[0] += bytes
-                avg = add_roll(roll, options.rolling_avg, bytes)
-                yield (sec, avg / (1024 * 1024))
-                bytes = 0
-                sec = cur_time
-            bytes += size
+def plot_throughput(ax, run, stats, style, label, alpha=1):
 
-        lastx = min(xmax, times[-1])
-        scale = lastx - sec
-        if scale > 0 and scale < 1:
-            bytes += sizes[-1]
-            bytes = bytes / scale
-            total_tput[0] += bytes
-            avg = add_roll(roll, options.rolling_avg, bytes)
-            yield(ceil(lastx), avg / (1024 * 1024))
-        elif bytes:
-            avg = add_roll(roll, options.rolling_avg, bytes)
-            yield(ceil(lastx), avg / (1024 * 1024))
+    times = []
+    counts = []
+    roll = []
+    t = floor(xmin)
+    total = 0
+    last_time = min(xmax, run.last_time)
+    while t <= floor(last_time):
+        val = run.tput.get(t, 0)
+        total += val
+        avg = add_roll(roll, options.rolling_avg, val)
+        counts.append(avg / (1024 * 1024))
+        times.append(t)
+        t += 1
 
-    if rw is None:
-        if options.reads_only:
-            rw = 0
-        if options.writes_only:
-            rw = 1
-    if rw != None:
-        if options.reads_only and rw != 0:
-            return
-        if options.writes_only and rw != 1:
-            return
-        rbs = data[:,1]
-        data = data[numpy.where(rbs == rw)]
+    sec = times[-1]
+    scale = last_time - sec
+    data = run.last_tput
+    if scale > 0 and scale < 1:
+        val = counts[-1] + run.last_tput[5]
+        val = val / scale
+        avg = add_roll(roll, options.rolling_avg, val)
+        counts.append(avg / (1024 * 1024))
+        times.append(ceil(last_time))
 
-    # prefer to plot the completion event
-    data = select_data_op(data, False)
-
-    if len(data) == 0:
-        return
-
-    times = numpy.array([])
-    tput = numpy.array([])
-    total_tput = [ 0 ]
-    for x,y in tput_iter(data[:,5], data[:,7], total_tput):
-        times = numpy.append(times, x)
-        tput = numpy.append(tput, y)
-
-    total_tput[0] /= 1024 * 1024
-    stats[1] = round(total_tput[0] / stats[3], 2)
-
+    total /= (1024 * 1024)
+    secs = min(xmax - xmin, run.last_time - xmin)
+    stats[1] = round(total / secs, 2)
     if label and label in legend_colors:
-        return ax.plot(times, tput, style, label=label, alpha=alpha,
+        return ax.plot(times, counts, style, label=label, alpha=alpha,
                 color=legend_colors[label])
     else:
-        return ax.plot(times, tput, style, label=label, alpha=alpha)
+        return ax.plot(times, counts, style, label=label, alpha=alpha)
 
-def plot_seek_count(ax, rw, data, stats, style, label, legend_colors, alpha=1):
-    def iter(sectors, times, total_seeks):
-        count = 0.0
-        last_dev = {}
-        # last holds an array (sector, size)
+def plot_seek_count(ax, run, stats, style, label, legend_colors, alpha=1):
 
-        last = None
-        last_size = None
-        sec = None
+    times = []
+    counts = []
+    roll = []
+    t = floor(xmin)
+    total = 0
+    max_time = run.last_time
+    last_time = min(xmax, max_time)
+    while t <= floor(last_time):
+        val = run.seeks.get(t, 0)
+        total += val
+        avg = add_roll(roll, options.rolling_avg, val)
+        counts.append(avg)
+        times.append(t)
+        t += 1
 
-        roll = []
-        for x in xrange(len(sectors)):
-            sector = sectors[x]
-            io_size = data[x][5] / 512
-            dev = data[x][8]
-            last, last_size = last_dev.get(dev, (None, None))
-            cur_time = floor(times[x])
-            if cur_time < xmin or cur_time > xmax:
-                continue
-            if sec == None:
-                avg = add_roll(roll, options.rolling_avg, 0.0)
-                yield (0.0, avg)
-                sec = cur_time
-                continue
-            if sec != cur_time:
-                avg = add_roll(roll, options.rolling_avg, count)
-                yield (sec, avg)
-                count = 0
-                sec = cur_time
-            if last != None:
-                diff = abs((last + last_size) - sector)
-                if diff > 128:
-                    count += 1
-                    total_seeks[0] += 1
-            last_dev[dev] = (sector, io_size)
-
-        lastx = min(xmax, times[-1])
-        scale = lastx - sec
-        if scale > 0 and scale < 1:
-            dev = data[-1][8]
-            last, last_size = last_dev[dev]
-            sector = sectors[-1]
+    sec = times[-1]
+    scale = last_time - sec
+    data = run.last_seek
+    if scale > 0 and scale < 1:
+        dev = run.last_seek[8]
+        last, last_size = run.seek_hist.get(dev, (None, None))
+        val = counts[-1]
+        if last:
+            sector = run.last_seek[4]
             diff = abs((last + last_size) - sector)
             if diff > 128:
-                count += 1
-                total_seeks[0] += 1
-            count = count / scale
-            avg = add_roll(roll, options.rolling_avg, count)
-            if sec == None:
-                sec = 0
-            yield(ceil(lastx), avg)
-        elif count:
-            avg = add_roll(roll, options.rolling_avg, count)
-            if sec == None:
-                sec = 0
-            yield(ceil(lastx), avg)
+                val += 1
+                total += 1
+        val = val / scale
+        avg = add_roll(roll, options.rolling_avg, val)
+        counts.append(avg)
+        times.append(ceil(last_time))
 
-    if rw is None:
-        if options.reads_only:
-            rw = 0
-        if options.writes_only:
-            rw = 1
-
-    if rw != None:
-        if options.reads_only and rw != 0:
-            return
-        if options.writes_only and rw != 1:
-            return
-        rbs = data[:,1]
-        data = data[numpy.where(rbs == rw)]
-
-    # prefer to plot the queue event
-    data = select_data_op(data, True)
-
-    if len(data) == 0:
-        return
-
-    times = numpy.array([])
-    counts = numpy.array([])
-    total_seeks = [0]
-    for x,y in iter(data[:,4], data[:,7], total_seeks):
-        times = numpy.append(times, x)
-        counts = numpy.append(counts, y)
-
-    stats[0] = round(total_seeks[0] / stats[3], 2)
+    secs = min(xmax - xmin, run.last_time - xmin)
+    stats[0] = round(total / secs, 2)
     if label and label in legend_colors:
         return ax.plot(times, counts, style, label=label, alpha=alpha,
                 color=legend_colors[label])
@@ -823,13 +825,15 @@ def run_blkparse(trace, converters):
     else:
         tracefiles.append(trace)
 
+    rd = rundata()
     for x in tracefiles:
         print "using tracefile %s" % os.path.join(trace_dir, x)
         p = os.popen('blkparse -q -D ' + trace_dir + ' -i ' + x +
                      ' -f "%a %d %M %m %S %N %s %5T.%9t %D\n"')
-        cur = loaddata(p, converters=converters)
+        cur = loaddata(p, rd, converters=converters)
         data = numpy.append(data, cur)
-    return data
+    rd.data = data
+    return rd
 
 def shapeit(X):
     lines = len(X) / 10
@@ -905,15 +909,14 @@ def translate_sector(dev, sector):
 
 def translate_run(run):
     if len(devices_sector_max) > 1:
-        for x in run:
+        for x in run.data:
             sector = x[4]
             dev = x[8]
             x[4] = device_translate[dev] + sector
         
     if must_sort:
-        sorted = sort_by_time(run)
-        return sorted
-    return run
+        sorted = sort_by_time(run.data)
+        run.data = sorted
 
 def process_input(input, type):
     global devices_sector_max
@@ -927,9 +930,11 @@ def process_input(input, type):
             p = sys.stdin
         else:
             p = open(input, 'r')
-        run = loaddata(p, converters=converters)
+        rd = rundata()
+        data = loaddata(p, rd, converters=converters)
+        rd.data = data
 
-    shapeit(run)
+    shapeit(run.data)
     return run
 
 # find either the highest or lowest value in stats
@@ -1113,6 +1118,52 @@ if options.prog:
     if not options.title:
         options.title = options.prog
 
+graphs = [ [1, 'io'], [2, 'tput'], [3, 'seek'], [4, 'iops'], [5, 'stats'] ]
+#graphs = [ [1, 'io'], [2, 'tput'], [3, 'seek'], [5, 'stats'] ]
+
+# fix up our array of which graphs to print
+if options.only_graph:
+    new_graphs = []
+    for x in options.only_graph:
+        for g in graphs:
+            if x == g[1]:
+                new_graphs.append(g)
+    graphs = new_graphs
+
+if options.no_graph:
+    for x in options.no_graph:
+        i = 0
+        while i < len(graphs):
+            if x == graphs[i][1]:
+                del graphs[i]
+                break
+            i += 1
+
+# sorting the array gets the subplot indexes back in the
+# correct order, but they may be too high.  The next loop
+# corrects the actual values
+graphs.sort()
+total = 1
+# now correct the subplot indexes in the array
+for x in graphs:
+    x[0] = total
+    total += 1
+
+if len(graphs) == 0:
+    print "No graphs selected, exiting"
+    sys.exit(1)
+
+# the bottom graph gets the xticks label,
+# but we don't want it to be the stats table
+if graphs[-1][1] == 'stats':
+    if len(graphs) > 1:
+        bottom_graph = graphs[-2][0]
+    else:
+        bottom_graph = 0
+else:
+    bottom_graph = graphs[-1][0]
+
+
 data = numpy.array([])
 runs = []
 must_sort = True
@@ -1144,16 +1195,16 @@ if len(devices_sector_max) > 1:
 
 stats = []
 for i in xrange(len(runs)):
-    if len(runs[i]) == 0:
+    if not runs[i].last_time:
         sys.stderr.write("Empty blktrace run found, exiting\n")
         sys.exit(1)
-    runs[i] = translate_run(runs[i])
+    translate_run(runs[i])
 
-    stats.append([0, 0, 0, round(runs[i][-1][7], 2)])
+    stats.append([0, 0, 0, round(runs[i].last_time, 2)])
 
-    unshapeit(runs[i])
-    data = numpy.append(data, runs[i])
-    shapeit(runs[i])
+    unshapeit(runs[i].data)
+    data = numpy.append(data, runs[i].data)
+    shapeit(runs[i].data)
 
 
 # data includes offset numbers from all the runs.  This us to scale the
@@ -1251,51 +1302,6 @@ for x in stats:
     x[3] -= xmin
     x[3] = round(x[3], 2)
 
-graphs = [ [1, 'io'], [2, 'tput'], [3, 'seek'], [4, 'iops'], [5, 'stats'] ]
-#graphs = [ [1, 'io'], [2, 'tput'], [3, 'seek'], [5, 'stats'] ]
-
-# fix up our array of which graphs to print
-if options.only_graph:
-    new_graphs = []
-    for x in options.only_graph:
-        for g in graphs:
-            if x == g[1]:
-                new_graphs.append(g)
-    graphs = new_graphs
-
-if options.no_graph:
-    for x in options.no_graph:
-        i = 0
-        while i < len(graphs):
-            if x == graphs[i][1]:
-                del graphs[i]
-                break
-            i += 1
-
-# sorting the array gets the subplot indexes back in the
-# correct order, but they may be too high.  The next loop
-# corrects the actual values
-graphs.sort()
-total = 1
-# now correct the subplot indexes in the array
-for x in graphs:
-    x[0] = total
-    total += 1
-
-if len(graphs) == 0:
-    print "No graphs selected, exiting"
-    sys.exit(1)
-
-# the bottom graph gets the xticks label,
-# but we don't want it to be the stats table
-if graphs[-1][1] == 'stats':
-    if len(graphs) > 1:
-        bottom_graph = graphs[-2][0]
-    else:
-        bottom_graph = 0
-else:
-    bottom_graph = graphs[-1][0]
-
 if mencoder_found and options.movie:
     data_movie(runs[0])
     sys.exit(1)
@@ -1320,9 +1326,9 @@ ticks = list(arange(xmin, xmax, xmax/8))
 ticks.append(xmax)
 xticks = ticks
 if xmax - xmin < 8:
-    xticklabels = [ "%.1f" % x for x in ticks ]
+    xticklabels = [ "%.1f" % (x - xmin) for x in ticks ]
 else:
-    xticklabels = [ "%d" % x for x in ticks ]
+    xticklabels = [ "%d" % (x - xmin) for x in ticks ]
 
 legend_colors  = {}
 plot = should_graph(graphs, 'io')
@@ -1331,7 +1337,7 @@ if plot:
     all_lines = []
     for i in xrange(len(runs)):
         label = getlabel(i)
-        all_lines += plot_data(a, runs[i], options.io_graph_dots, label,
+        all_lines += plot_data(a, runs[i].data, options.io_graph_dots, label,
                                 legend_colors)
 
     af = AnnoteFinder(axis=a)
@@ -1398,7 +1404,7 @@ if plot:
     a = subplot(*plot)
     for i in xrange(len(runs)):
         label = getlabel(i)
-        plot_throughput(a, None, runs[i], stats[i], '-', label)
+        plot_throughput(a, runs[i], stats[i], '-', label)
 
     a.set_xticks(xticks)
     a.set_xticklabels(xticklabels)
@@ -1433,7 +1439,7 @@ if plot:
     a = subplot(*plot)
     for i in xrange(len(runs)):
         label = getlabel(i)
-        plot_iops(a, None, runs[i], stats[i], '-', label)
+        plot_iops(a, runs[i], stats[i], '-', label)
 
     a.set_xticks(xticks)
     a.set_xticklabels(xticklabels)
@@ -1469,7 +1475,7 @@ if plot:
     a = subplot(*plot)
     for i in xrange(len(runs)):
         label = getlabel(i)
-        plot_seek_count(a, None, runs[i], stats[i], '-', label, legend_colors)
+        plot_seek_count(a, runs[i], stats[i], '-', label, legend_colors)
 
     # cut down the number of yticks to something more reasonable
     ticks = a.get_yticks()
