@@ -272,14 +272,24 @@ def loaddata(fh, rundata, delimiter=None, converters=None):
                 found_issued = True
 
             this_tag = 0
+            tag_data = []
             row = []
             for i,val in enumerate(line.split(delimiter)):
                 if i < 9:
                     row.append(converters.get(i,float)(val))
-                else:
-                    this_tag = tags.setdefault(val, len(tags))
-            row.append(this_tag)
+                elif i <= 10:
+                    tag_data.append(val)
+
             this_op = row[0]
+            if this_op == QUEUE_EVENT and options.tag_process:
+                if 'all' in options.merge or \
+                        options.merge.count(tag_data[1]) > 0:
+                    val = tag_data[1]
+                else:
+                    val = tag_data[1] + "(" + tag_data[0] + ")"
+                this_tag = tags.setdefault(val, len(tags))
+
+            row.append(this_tag)
             this_time = row[7]
             this_dev = row[8]
             this_sector = row[4]
@@ -306,7 +316,13 @@ def loaddata(fh, rundata, delimiter=None, converters=None):
                     first_line = True
                 continue
 
-            if options.only_io_graph_seeks:
+            if options.tag_process:
+                if this_op != QUEUE_EVENT and found_queue:
+                    continue
+                if this_op == DISPATCH_EVENT and found_completion:
+                    continue
+
+            elif options.only_io_graph_seeks:
                 if this_op == COMPLETION_EVENT and (found_queue or
                         found_issued):
                     continue
@@ -342,6 +358,7 @@ def loaddata(fh, rundata, delimiter=None, converters=None):
             last_size = this_size
             last_dev = this_dev
             last_tag = this_tag
+
         if last_row:
             for x in last_row:
                 yield x
@@ -351,7 +368,6 @@ def loaddata(fh, rundata, delimiter=None, converters=None):
                 yield x
 
     X = numpy.fromiter(iter(fh, delimiter, converters), dtype=float)
-    print "total lines %d total out %d" % (total_lines, total_out)
     return X
 
 def sort_by_time(data):
@@ -561,6 +577,30 @@ def data_movie(run):
             os.remove(os.path.join(root, name))
     os.rmdir(png_dir)
 
+def save_color(label, rw, color, legend_colors):
+    if not label:
+        return
+    if rw == None:
+        rw = 0
+    legend_colors.setdefault((label, rw), color)
+
+def pick_color(label, rw, legend_colors):
+    if rw == None:
+        this_rw = 0
+    else:
+        this_rw = rw
+    val = legend_colors.get((label, this_rw), None)
+    if val:
+        return val
+    if rw == None:
+        val = legend_colors.get((label, 1), None)
+        if val:
+            return val
+
+    if plot_colors:
+        val = plot_colors.pop()
+    return val
+
 def plot_data(ax, data, style, label, legend_colors, alpha=1):
     def reduce_plot():
         reduce = {}
@@ -589,9 +629,17 @@ def plot_data(ax, data, style, label, legend_colors, alpha=1):
             yield y * y_per_cell
             yield tg[i]
 
-    xcells = 325.0 * options.io_graph_cell_multi
+    # if we're the only graph, make more cells
+    if len(graphs) == 1:
+        more_detail = 1024
+    elif len(graphs) == 2:
+        more_detail = 512
+    else:
+        more_detail = 1
+
+    xcells = 325.0 * options.io_graph_cell_multi * more_detail
     x_per_cell = (xmax - xmin) / xcells
-    ycells = 80.0 * options.io_graph_cell_multi
+    ycells = 80.0 * options.io_graph_cell_multi * more_detail
     y_per_cell = (yzoommax - yzoommin) / ycells
 
     rbs = data[:,1]
@@ -601,26 +649,39 @@ def plot_data(ax, data, style, label, legend_colors, alpha=1):
     t = numpy.fromiter(reduce_plot(), dtype=float)
     t.shape = (len(t)/4, 4)
     lines = []
+
+    kwargs = { 'mew' : 0,
+            'ms' : options.io_graph_marker_size,
+            'alpha':alpha}
+
     for tag in tags:
-        at = t[numpy.where(t[:,3] == tags[tag])]
+        # most of the time we have only one tag.
+        # don't do the expensive where in that case
+        if len(tags) > 1:
+            at = t[numpy.where(t[:,3] == tags[tag])]
+        else:
+            at = t
+        
         if len(at) == 0:
             continue
         if not options.writes_only:
             atr = at[numpy.where(at[:,0] == 0)]
-            lines.extend(ax.plot(atr[:,1], atr[:,2], style, mew=0,
-                                 ms=options.io_graph_marker_size,
-                                 alpha=alpha,
-                                 label=tag + " Reads " + label))
-            if label and len(atr) > 0:
-                legend_colors[label] = lines[-1].get_color()
+            if len(atr > 0):
+                kwargs['label'] = tag + " Reads " + label
+                color = pick_color(label, 0, legend_colors)
+                if color:
+                    kwargs['color'] = color
+                lines.extend(ax.plot(atr[:,1], atr[:,2], style, **kwargs))
+                save_color(label, 0, lines[-1].get_color(), legend_colors)
         if not options.reads_only:
             atr = at[numpy.where(at[:,0] == 1)]
-            lines.extend(ax.plot(atr[:,1], atr[:,2], style, mew=0,
-                                 ms=options.io_graph_marker_size,
-                                 alpha=alpha,
-                                 label=tag + " Writes " + label))
-            if label and len(atr) > 0:
-                legend_colors[label] = lines[-1].get_color()
+            if len(atr > 0):
+                kwargs['label'] = tag + " Writes " + label
+                color = pick_color(label, 1, legend_colors)
+                if color:
+                    kwargs['color'] = color
+                lines.extend(ax.plot(atr[:,1], atr[:,2], style, **kwargs))
+                save_color(label, 1, lines[-1].get_color(), legend_colors)
     return lines
 
 
@@ -662,11 +723,16 @@ def plot_iops(ax, run, stats, style, label, alpha=1):
     secs = min(xmax - xmin, run.last_time - xmin)
     stats[2] = round(total / secs, 2)
 
-    if label and label in legend_colors:
-        return ax.plot(times, counts, style, label=label, alpha=alpha,
-                color=legend_colors[label])
-    else:
-        return ax.plot(times, counts, style, label=label, alpha=alpha)
+    kwargs = { "label" : label, "alpha" : alpha }
+    if label:
+        color = pick_color(label, None, legend_colors)
+        if color:
+            kwargs['color'] = color
+
+    lines = ax.plot(times, counts, style, **kwargs)
+    if lines:
+        save_color(label, 0, lines[-1].get_color(), legend_colors)
+    return lines
 
 def plot_throughput(ax, run, stats, style, label, alpha=1):
 
@@ -697,11 +763,18 @@ def plot_throughput(ax, run, stats, style, label, alpha=1):
     total /= (1024 * 1024)
     secs = min(xmax - xmin, run.last_time - xmin)
     stats[1] = round(total / secs, 2)
-    if label and label in legend_colors:
-        return ax.plot(times, counts, style, label=label, alpha=alpha,
-                color=legend_colors[label])
-    else:
-        return ax.plot(times, counts, style, label=label, alpha=alpha)
+
+    kwargs = { "label" : label, "alpha" : alpha }
+    if label:
+        color = pick_color(label, None, legend_colors)
+        if color:
+            kwargs['color'] = color
+
+    lines = ax.plot(times, counts, style, **kwargs)
+    if lines:
+        save_color(label, 0, lines[-1].get_color(), legend_colors)
+    return lines
+
 
 def plot_seek_count(ax, run, stats, style, label, legend_colors, alpha=1):
 
@@ -740,11 +813,16 @@ def plot_seek_count(ax, run, stats, style, label, legend_colors, alpha=1):
 
     secs = min(xmax - xmin, run.last_time - xmin)
     stats[0] = round(total / secs, 2)
-    if label and label in legend_colors:
-        return ax.plot(times, counts, style, label=label, alpha=alpha,
-                color=legend_colors[label])
-    else:
-        return ax.plot(times, counts, style, label=label, alpha=alpha)
+    kwargs = { "label" : label, "alpha" : alpha }
+    if label:
+        color = pick_color(label, None, legend_colors)
+        if color:
+            kwargs['color'] = color
+
+    lines = ax.plot(times, counts, style, **kwargs)
+    if lines:
+        save_color(label, 0, lines[-1].get_color(), legend_colors)
+    return lines
 
 def run_one_blktrace(trace, device):
     #args = [ "blktrace", "-d", device,  "-o", trace, "-b", "16384" ]
@@ -826,10 +904,15 @@ def run_blkparse(trace, converters):
         tracefiles.append(trace)
 
     rd = rundata()
+    if options.tag_process:
+        proc_tags = ' %p %C'
+    else:
+        proc_tags = ""
+
     for x in tracefiles:
         print "using tracefile %s" % os.path.join(trace_dir, x)
         p = os.popen('blkparse -q -D ' + trace_dir + ' -i ' + x +
-                     ' -f "%a %d %M %m %S %N %s %5T.%9t %D\n"')
+                     ' -f "%a %d %M %m %S %N %s %5T.%9t %D' + proc_tags + '\n"')
         cur = loaddata(p, rd, converters=converters)
         data = numpy.append(data, cur)
     rd.data = data
@@ -1001,6 +1084,8 @@ parser.add_option("", "--full-trace", help="Don't filter blktrace events",
                   default=False, action="store_true")
 
 if not blktrace_only:
+    parser.add_option("-c", "--colors", help="List of colors to use in plot",
+            default="")
     parser.add_option("-z", "--zoom", help="Zoom range min:max (in MB)",
                       default="")
     parser.add_option("-x", "--xzoom", help="Time range min:max (seconds)",
@@ -1041,6 +1126,10 @@ if not blktrace_only:
                       default=False, action="store_true")
     parser.add_option("-F", "--figure-size", help="Figure size (8x6)",
                       default="8x10")
+    parser.add_option("-P", "--tag-process", help="Tag IO graph by process",
+                      default=False, action="store_true")
+    parser.add_option("-M", "--merge", help="Merge process pids for a process",
+                        default=[], action="append")
 
     mencoder_found = check_for_mencoder()
     if mencoder_found:
@@ -1058,6 +1147,13 @@ if not blktrace_only:
                           default="16000")
 
 (options,args) = parser.parse_args()
+
+if options.colors:
+    plot_colors = options.colors.split(',')
+    # we use pop to pull colors off, so reverse the list
+    plot_colors.reverse()
+else:
+    plot_colors = []
 
 if not blktrace_only:
     if options.interactive:
@@ -1376,14 +1472,24 @@ if plot:
     # the lenged and then set it back when we're done.
     #
     for x in all_lines:
-        x.set_markersize(3)
+        x.set_markersize(5)
 
     if total_graphs == 1:
         ncol = min(4, len(tags.keys()))
-        a.legend(loc=(-0.1,-0.25), ncol=ncol, columnspacing=0.1,
-                shadow=True, borderpad=0.3, numpoints=1,
-                handletextpad = 0.005, labelspacing = 0.01,
-                prop=FontProperties(size='x-small') )
+        # matplotlib throws an error if there are fewer labels than
+        # columns.  So, we loop.
+        while ncol > 1:
+            try:
+                a.legend(loc=(-0.1,-0.25), ncol=ncol, columnspacing=0.1,
+                        shadow=True, borderpad=0.3, numpoints=1,
+                        handletextpad = 0.005, labelspacing = 0.01,
+                        prop=FontProperties(size='x-small') )
+                break
+            except:
+                if ncol == 1:
+                    raise
+                ncol -= 1
+
         subplots_adjust(bottom=0.2)
     else:
         a.legend(loc=(legend_pos, 0.8), shadow=True, borderpad=0.3,
@@ -1499,7 +1605,7 @@ if plot:
     if plot[2] == bottom_graph:
         a.set_xlabel('Time (seconds)')
 
-subplots_adjust(right = 0.8, hspace=0.4)
+subplots_adjust(right = 0.79, hspace=0.4)
 
 plot = should_graph(graphs, 'stats')
 if plot:
