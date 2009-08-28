@@ -930,9 +930,9 @@ def process_input(input, type):
             p = sys.stdin
         else:
             p = open(input, 'r')
-        rd = rundata()
-        data = loaddata(p, rd, converters=converters)
-        rd.data = data
+        run = rundata()
+        data = loaddata(p, run, converters=converters)
+        run.data = data
 
     shapeit(run.data)
     return run
@@ -1379,7 +1379,8 @@ if plot:
         x.set_markersize(3)
 
     if total_graphs == 1:
-        a.legend(loc=(-0.1,-0.25), ncol=4, columnspacing=0.1,
+        ncol = min(4, len(tags.keys()))
+        a.legend(loc=(-0.1,-0.25), ncol=ncol, columnspacing=0.1,
                 shadow=True, borderpad=0.3, numpoints=1,
                 handletextpad = 0.005, labelspacing = 0.01,
                 prop=FontProperties(size='x-small') )
