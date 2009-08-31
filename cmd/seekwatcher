@@ -54,12 +54,10 @@
 #
 import sys, os, signal, time, commands, tempfile, signal
 from optparse import OptionParser
+from seekwatcher import rundata
 
 blktrace_only = False
 tags = { "": 0 }
-found_queue = False
-found_completion = False
-found_issued = False
 
 try:
     from matplotlib import rcParams
@@ -68,88 +66,6 @@ try:
 except:
     sys.stderr.write("matplotlib not found, using blktrace only mode\n")
     blktrace_only = True
-
-#
-# the rundata class holds all underlying data used to create each graph.
-# seeks, throughput and iops are calculated once as we load the data
-# in, and then the data is filtered to only include enough for the
-# movies and IO graph.  If we aren't doing the IO graph, the
-# data is stripped almost bare.
-#
-class rundata:
-    def __init__(self):
-        self.seek_hist = {}
-        self.seeks = {}
-        self.tput = {}
-        self.iops = {}
-        self.stats = {}
-        self.last_seek = None
-        self.last_tput = None
-        self.last_iops = None
-        self.last_time = None
-        self.last_line = None
-        self.data = None
-
-    def add_seek(self, data):
-        dev = data[8]
-        sector = data[4]
-        io_size = data[5] / 512
-        cur_time = floor(data[7])
-        last, last_size = self.seek_hist.get(dev, (None, None))
-
-        if last != None:
-            diff = abs((last + last_size) - sector)
-            if diff > 128:
-                old = self.seeks.get(cur_time, 0)
-                self.seeks[cur_time] = old + 1
-        self.seek_hist[dev] = (sector, io_size)
-        self.last_seek = data
-        self.last_time = data[7]
-
-    def add_tput(self, data):
-        io_size = data[5]
-        cur_time = floor(data[7])
-        old = self.tput.get(cur_time, 0)
-        self.tput[cur_time] = old + io_size
-        self.last_tput = data
-        self.last_time = data[7]
-
-    def add_iop(self, data):
-        cur_time = floor(data[7])
-        old = self.iops.get(cur_time, 0)
-        self.iops[cur_time] = old + 1
-        self.last_iops = data
-        self.last_time = data[7]
-
-    def add_line(self, data):
-        op = data[0]
-        self.last_line = data
-
-        # for seeks, we want to use the dispatch event
-        # and if those aren't in the trace we want
-        # the queued event, and if those aren't in
-        # the trace, we want the completion event
-        if op == DISPATCH_EVENT:
-            # dispatch
-            self.add_seek(data)
-        elif op == COMPLETION_EVENT and not found_issued and not found_queue:
-            # completion
-            self.add_seek(data)
-        elif op == QUEUE_EVENT and not found_issued:
-            # queue
-            self.add_seek(data)
-
-        # for tput and iops, we want to use the completion event
-        # otherwise dispatch, otherwise queue
-        if op == COMPLETION_EVENT:
-            self.add_tput(data)
-            self.add_iop(data)
-        elif op == DISPATCH_EVENT and not found_completion:
-            self.add_tput(data)
-            self.add_iop(data)
-        elif op == QUEUE_EVENT and not found_completion and not found_issued:
-            self.add_tput(data)
-            self.add_iop(data)
 
 class AnnoteFinder:
   """
@@ -205,206 +121,12 @@ class AnnoteFinder:
       self.drawnAnnotations[(x,y)] = t
       draw()
 
-def dev2num(dev):
-    s2 = dev.replace(',', '.')
-    return float(s2)
-
-QUEUE_EVENT = 0.0
-COMPLETION_EVENT = 1.0
-DISPATCH_EVENT = 4.0
-
-def flag2num(flag):
-    if flag == 'Q':
-        return QUEUE_EVENT
-    if flag == 'C':
-        return COMPLETION_EVENT
-    if flag == 'U':
-        return 2.0
-    if flag == 'D':
-        return DISPATCH_EVENT
-    return 3.0
-    sys.stderr.write("unknown flag %s\n" %flag)
-
-def command2num(com):
-    if com[0] == 'R':
-        return 0.0
-    if com[0] == 'W':
-        return 1.0
-    return 2.0
-    sys.stderr.write("unknown command %s\n" % com)
-
-def loaddata(fh, rundata, delimiter=None, converters=None):
+def loaddata(fh, rundata, delimiter=None):
 
     io_plot = should_graph(graphs, 'io')
 
-    def iter(fh, delimiter, converters):
-        global devices_sector_max
-        global found_completion
-        global found_queue
-        global found_issued
-        global total_lines
-        global total_out
-
-        total_lines = 0
-        total_out = 0
-        first_line = False
-
-        if converters is None: converters = {}
-        last_sector = None
-        last_rw = None
-        last_row = None
-        last_end = None
-        last_cmd = None
-        last_size = None
-        last_dev = None
-        last_tag = None
-        for i,line in enumerate(fh):
-            if not line.startswith('Q') and not \
-                    line.startswith('D') and not \
-                    line.startswith('C'):
-                continue
-
-            if not found_completion and line.startswith('C'):
-                found_completion = True
-            if not found_queue and line.startswith('Q'):
-                found_queue = True
-            if not found_issued and line.startswith('D'):
-                found_issued = True
-
-            this_tag = 0
-            tag_data = []
-            row = []
-            for i,val in enumerate(line.split(delimiter)):
-                if i < 9:
-                    row.append(converters.get(i,float)(val))
-                elif i <= 10:
-                    tag_data.append(val)
-
-            this_op = row[0]
-            if this_op == QUEUE_EVENT and options.tag_process:
-                if 'all' in options.merge or \
-                        options.merge.count(tag_data[1]) > 0:
-                    val = tag_data[1]
-                else:
-                    val = tag_data[1] + "(" + tag_data[0] + ")"
-                this_tag = tags.setdefault(val, len(tags))
-
-            row.append(this_tag)
-            this_time = row[7]
-            this_dev = row[8]
-            this_sector = row[4]
-            this_rw = row[1]
-            this_size = row[5] / 512
-
-            total_lines += 1
-            if options.writes_only and this_rw == 0:
-                continue
-            if options.reads_only and this_rw == 1:
-                continue
-
-            rundata.add_line(row)
-
-            devices_sector_max[this_dev] = max(this_sector + this_size,
-                                    devices_sector_max.get(this_dev, 0));
-
-            # everything from here on is for the IO graph.
-            # so we try to cut down on the stuff we keep in ram
-            if not io_plot:
-                if not first_line:
-                    for x in rundata.last_line:
-                        yield x
-                    first_line = True
-                continue
-
-            if options.tag_process:
-                if this_op != QUEUE_EVENT and found_queue:
-                    continue
-                if this_op == DISPATCH_EVENT and found_completion:
-                    continue
-
-            elif options.only_io_graph_seeks:
-                if this_op == COMPLETION_EVENT and (found_queue or
-                        found_issued):
-                    continue
-                if this_op == QUEUE_EVENT and found_issued:
-                    continue
-            else:
-                if this_op == QUEUE_EVENT and (found_completion or
-                        found_issued):
-                    continue
-                if this_op == DISPATCH_EVENT and found_completion:
-                    continue
-
-            if (last_row and this_op == last_op and this_rw == last_rw and
-                this_dev == last_dev and
-                this_time - last_time < .5 and last_size < 1024 and
-                this_sector == last_end and this_tag == last_tag):
-                last_end += this_size
-                last_size += this_size
-                last_row[5] += row[5]
-                continue
-                
-            if last_row:
-                total_out += 1
-                for x in last_row:
-                    yield x
-                
-            last_row = row
-            last_op = this_op
-            last_sector = this_sector
-            last_time = this_time
-            last_rw = this_rw
-            last_end = this_sector + this_size
-            last_size = this_size
-            last_dev = this_dev
-            last_tag = this_tag
-
-        if last_row:
-            for x in last_row:
-                yield x
-
-        if total_out == 0:
-            for x in rundata.last_line:
-                yield x
-
-    X = numpy.fromiter(iter(fh, delimiter, converters), dtype=float)
-    return X
-
-def sort_by_time(data):
-    def sort_iter(sorted):
-        for x in sorted:
-            for field in data[x]:
-                yield field
-
-    times = data[:,7]
-    sorted = times.argsort()
-    X = numpy.fromiter(sort_iter(sorted), dtype=float)
-    shapeit(X)
-    return X
-
-def select_data_op(data, seeks):
-    # when we're graphing seeks, the most accurate version is going to
-    # be the issued operation, otherwise try for queue ops, otherwise
-    # give up and go with completion
-    ops = data[:,0]
-    if seeks:
-        if found_issued:
-            ret = data[numpy.where(ops == 4)]
-        elif found_queue:
-            ret = data[numpy.where(ops == 0)]
-        else:
-            ret = data
-            
-    else:
-        # when we aren't tracking seeks, we want to show the IO in
-        # the order the device returned it
-        if found_completion:
-            ret = data[numpy.where(ops == 1)]
-        elif found_issued:
-            ret = data[numpy.where(ops == 4)]
-        else:
-            ret = data
-    return ret
+    rundata.load_data(fh, delimiter, io_plot, devices_sector_max,
+            tags, options)
 
 def data_movie(run):
     def xycalc(sector):
@@ -444,6 +166,8 @@ def data_movie(run):
 
 
     data = run.data
+    if len(devices_sector_max) > 1:
+        data = sort_by_time(runs[i].data)
     times = data[:,7]
     
     options.movie_cell_size = float(options.movie_cell_size)
@@ -882,9 +606,8 @@ def run_prog(program, trace, devices):
     signal.signal(signal.SIGTERM, signal.SIG_DFL)
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
-def run_blkparse(trace, converters):
+def run_blkparse(trace):
     tracefiles = []
-    data = numpy.array([])
     seen = {}
     trace_dir = options.blktrace_destination
     full_trace_name = os.path.join(trace_dir, trace)
@@ -905,7 +628,7 @@ def run_blkparse(trace, converters):
     else:
         tracefiles.append(trace)
 
-    rd = rundata()
+    rd = rundata.rundata()
     if options.tag_process:
         proc_tags = ' %p %C'
     else:
@@ -915,18 +638,8 @@ def run_blkparse(trace, converters):
         print "using tracefile %s" % os.path.join(trace_dir, x)
         p = os.popen('blkparse -q -D ' + trace_dir + ' -i ' + x +
                      ' -f "%a %d %M %m %S %N %s %5T.%9t %D' + proc_tags + '\n"')
-        cur = loaddata(p, rd, converters=converters)
-        data = numpy.append(data, cur)
-    rd.data = data
+        loaddata(p, rd)
     return rd
-
-def shapeit(X):
-    lines = len(X) / 10
-    X.shape = (lines, 10)
-
-def unshapeit(X):
-    lines = len(X) * 10
-    X.shape = (lines, 1)
 
 def getlabel(i):
     if i < len(options.label):
@@ -992,16 +705,6 @@ def check_for_mencoder(encoder_prog=all):
 def translate_sector(dev, sector):
     return device_translate[dev] + sector;
 
-def translate_run(run):
-    if len(devices_sector_max) > 1:
-        for x in run.data:
-            sector = x[4]
-            dev = x[8]
-            x[4] = device_translate[dev] + sector
-        
-    if must_sort:
-        sorted = sort_by_time(run.data)
-        run.data = sorted
 
 def process_input(input, type):
     global devices_sector_max
@@ -1009,17 +712,15 @@ def process_input(input, type):
     global must_sort
 
     if type == 0:
-        run = run_blkparse(input, converters)
+        run = run_blkparse(input)
     elif type == 1:
         if input == "-":
             p = sys.stdin
         else:
             p = open(input, 'r')
-        run = rundata()
-        data = loaddata(p, run, converters=converters)
-        run.data = data
+        run = rundata.rundata()
+        loaddata(p, run)
 
-    shapeit(run.data)
     return run
 
 # find either the highest or lowest value in stats
@@ -1070,6 +771,18 @@ def should_graph(graphs, label):
         if label == x[1]:
             return len(graphs), 1, x[0]
     return None
+
+def sort_by_time(data):
+    def sort_iter(sorted):
+        for x in sorted:
+            for field in data[x]:
+                yield field
+
+    times = data[:,7]
+    sorted = times.argsort()
+    X = numpy.fromiter(sort_iter(sorted), dtype=float)
+    shapeit(X)
+    return X
 
 usage = "usage: %prog [options]"
 parser = OptionParser(usage=usage)
@@ -1196,11 +909,6 @@ if mencoder_found and options.movie:
               ".ogg or .mpg"
 	sys.exit(1)
 
-converters = {}
-converters[0] = flag2num
-converters[1] = command2num
-converters[8] = dev2num
-
 if options.prog:
     check_for_kernel_feature("DEBUG_FS")
     check_for_kernel_feature("BLK_DEV_IO_TRACE")
@@ -1262,7 +970,6 @@ else:
     bottom_graph = graphs[-1][0]
 
 
-data = numpy.array([])
 runs = []
 must_sort = True
 devices_sector_max = {}
@@ -1292,26 +999,23 @@ if len(devices_sector_max) > 1:
         total += devices_sector_max[x] + 1000000
 
 stats = []
+data = None
 for i in xrange(len(runs)):
     if not runs[i].last_time:
         sys.stderr.write("Empty blktrace run found, exiting\n")
         sys.exit(1)
-    translate_run(runs[i])
+
+    runs[i].translate_run(devices_sector_max, device_translate)
 
     stats.append([0, 0, 0, round(runs[i].last_time, 2)])
+    if data:
+        data = numpy.append(data, runs[i].data, axis=0)
+    else:
+        data = runs[i].data
 
-    unshapeit(runs[i].data)
-    data = numpy.append(data, runs[i].data)
-    shapeit(runs[i].data)
 
-
-# data includes offset numbers from all the runs.  This us to scale the
+# data includes offset numbers from all the runs.  This allows us to scale the
 # whole IO graph.
-shapeit(data)
-
-if must_sort:
-    sorted = sort_by_time(data)
-    data = sorted
 
 # try to drop out the least common data points by creating
 # a historgram of the sectors seen.
@@ -1462,6 +1166,7 @@ if plot:
     if len(ll) > 1:
         for x in xrange(len(ll)):
             dev, val = ll[x]
+            dev = round(dev, 2)
             a.axhline(val, lw=0.1, color='black')
             a.text(xticks[-1] + .10, val, dev,
                      fontproperties=FontProperties(size='x-small') )
