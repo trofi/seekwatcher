@@ -129,15 +129,6 @@ def loaddata(fh, rundata, delimiter=None):
             tags, options)
 
 def data_movie(run):
-    def xycalc(sector):
-        if sector < yzoommin or sector > yzoommax:
-            return None
-        sector = sector - yzoommin
-        sector = sector / sectors_per_cell
-        yval = floor(sector / num_cells)
-        xval = sector % num_cells
-        return (xval + 5, yval + 5)
-
     def add_frame(prev, ins, max):
         if len(prev) > max:
             del prev[0]
@@ -167,7 +158,7 @@ def data_movie(run):
 
     data = run.data
     if len(devices_sector_max) > 1:
-        data = sort_by_time(runs[i].data)
+        data = sort_by_time(data)
     times = data[:,7]
     
     options.movie_cell_size = float(options.movie_cell_size)
@@ -230,49 +221,29 @@ def data_movie(run):
     a.set_xlim(0, num_cells)
     a.set_ylim(0, num_cells)
     a.hold(False)
-    datai = 0
     datalen = len(data)
     bluemap = get_cmap("Blues")
     greenmap = get_cmap("Greens")
 
-    while i < total_frames and datai < datalen:
+    moviedata = rundata.moviedata(data, xmax, yzoommin,
+            yzoommax, sectors_per_cell, num_cells)
+
+    while i < total_frames and moviedata.datai < datalen:
         start = start_second + i * secs_per_frame
         i += 1
         end = start + secs_per_frame
-        if datai >= datalen or data[datai][7] > xmax:
+        if moviedata.datai >= datalen or data[moviedata.datai][7] > xmax:
             break
         write_xvals = []
         write_yvals = []
         read_xvals = []
         read_yvals = []
-        while datai < datalen and data[datai][7] < end:
-            row = data[datai]
-            time = row[7]
-            if time < start:
-                print "dropping time %.2f < start %.2f" % (time, start)
-                continue
-            if time > xmax:
-                continue
-            datai += 1
-            sector = row[4]
-            size = int(max(row[5] / 512, 1))
-            rbs = row[1]
-            cell = 0
-            while cell < size:
-                xy = xycalc(sector)
-                sector += sectors_per_cell
-                cell += sectors_per_cell
-                if xy:
-                    if rbs:
-                        write_xvals.append(xy[0])
-                        write_yvals.append(xy[1])
-                    else:
-                        read_xvals.append(xy[0])
-                        read_yvals.append(xy[1])
+
+        moviedata.make_frame(start, end, read_xvals, read_yvals, write_xvals, write_yvals, prev)
+
         if not read_xvals and not write_xvals:
             continue
 
-        add_frame(prev, (read_xvals, read_yvals, write_xvals, write_yvals), 10)
         graphit(a, prev)
 
         a.set_xticklabels([])
@@ -524,11 +495,11 @@ def plot_seek_count(ax, run, stats, style, label, alpha=1):
     data = run.last_seek
     if scale > 0 and scale < 1:
         dev = run.last_seek[8]
-        last, last_size = run.seek_hist.get(dev, (None, None))
+        last = run.seek_hist.get(dev, 0)
         val = counts[-1]
         if last:
             sector = run.last_seek[4]
-            diff = abs((last + last_size) - sector)
+            diff = abs(last - sector)
             if diff > 128:
                 val += 1
                 total += 1
@@ -781,7 +752,8 @@ def sort_by_time(data):
     times = data[:,7]
     sorted = times.argsort()
     X = numpy.fromiter(sort_iter(sorted), dtype=float)
-    shapeit(X)
+    lines = len(X) / 10
+    X.shape = (lines, 10)
     return X
 
 usage = "usage: %prog [options]"
