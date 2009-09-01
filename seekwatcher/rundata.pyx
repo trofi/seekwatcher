@@ -269,7 +269,7 @@ cdef class rundata:
                 if (this_op == last_op and 
                 this_rw == last_rw and
                 this_dev == last_dev and
-                this_time - last_time < .5 and last_size < 1024 and
+                this_time - last_time < .5 and last_size < 512 and
                 this_sector == last_end and this_tag == last_tag):
                     last_end += this_size
                     last_size += this_size

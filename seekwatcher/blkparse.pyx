@@ -1,20 +1,27 @@
 import numpy
 import struct
+import os
 cimport numpy
+cdef extern from "unistd.h":
+   int read(int fd, void *buf, int count)
+    
+cdef extern from "inttypes.h":
+    ctypedef int uint32_t
+    ctypedef int uint64_t
+    ctypedef int uint16_t
 
-#struct blk_io_trace {
-#      0  __u32 magic;            /* MAGIC << 8 | version */
-#      1  __u32 sequence;         /* event number */
-#      2  __u64 time;             /* in nanoseconds */
-#      3  __u64 sector;           /* disk offset */
-#      4  __u32 bytes;            /* transfer length */
-#      5  __u32 action;           /* what happened */
-#      6  __u32 pid;              /* who did it */
-#      7  __u32 device;           /* device identifier (dev_t) */
-#      8  __u32 cpu;              /* on what cpu did it happen */
-#      9  __u16 error;            /* completion error */
-#      10 __u16 pdu_len;          /* length of data after this trace */
-#};
+cdef struct blk_io_trace:
+      uint32_t magic    #            /* MAGIC << 8 | version */
+      uint32_t sequence #         /* event number */
+      uint64_t time     #             /* in nanoseconds */
+      uint64_t sector   #           /* disk offset */
+      uint32_t bytes    #            /* transfer length */
+      uint32_t action   #           /* what happened */
+      uint32_t pid      #              /* who did it */
+      uint32_t device   #           /* device identifier (dev_t) */
+      uint32_t cpu      #              /* on what cpu did it happen */
+      uint16_t error    #            /* completion error */
+      uint16_t pdu_len  #          /* length of data after this trace */
 
 cdef int BLK_TC_SHIFT = 16
 cdef unsigned int BLK_TC_ACT(unsigned int act):
@@ -112,6 +119,16 @@ cdef float dev_to_float(unsigned major, unsigned minor):
 
     return res + float(major)
 
+cdef skip_bytes(int fd, int num_bytes, char *buf, int buf_size):
+    cdef int val
+    cdef int ret
+    while num_bytes > 0:
+        val = min(num_bytes, buf_size)
+        ret = read(fd, buf, val)
+        if ret < 0:
+            return
+        num_bytes -= ret
+
 def read_events(fp, numpy.ndarray[numpy.float_t, ndim=1] row, tags, pid_map):
     cdef int ret = 0
     cdef unsigned action
@@ -122,46 +139,50 @@ def read_events(fp, numpy.ndarray[numpy.float_t, ndim=1] row, tags, pid_map):
     cdef int rw
     cdef unsigned major
     cdef unsigned minor
+    cdef char buf[4096]
+    cdef int fd = fp.fileno()
+    cdef int num
+    cdef blk_io_trace *trace
 
     while True:
-        record = fp.read(format_size)
-        if not record:
+
+        num = read(fd, buf, format_size)
+        if num < format_size:
             break
 
-        c = struct.unpack(format, record)
-        action = c[5]
+        trace = <blk_io_trace *>buf
+        action = trace.action
+
         if action == BLK_TN_PROCESS and tags:
-            payload_size = c[10]
-            payload = fp.read(payload_size)
+            payload_size = trace.pdu_len
+            payload = os.read(fd, payload_size)
             idx = payload.find('\0')
             if idx >= 0:
                 payload = payload[:idx]
-            pid_map[c[6]] = payload
+            pid_map[trace.pid] = payload
             continue
 
         act = action & 0xffff
-        size = c[4]
+        size = trace.bytes
 
         if (size == 0 or (act != __BLK_TA_COMPLETE and
             act != __BLK_TA_QUEUE and
             act != __BLK_TA_ISSUE)):
-            skip = c[10]
-            if skip:
-                fp.read(skip)
+            skip_bytes(fd, trace.pdu_len, buf, 4096)
             continue
         
-        time = float(c[2]) / 1000000000.0
+        time = float(trace.time) / 1000000000.0
         rw = action & BLK_TC_ACT(BLK_TC_WRITE) != 0
-        major = MAJOR(c[7])
-        minor = MINOR(c[7])
+        major = MAJOR(trace.device)
+        minor = MINOR(trace.device)
 
         ret = 1
         row[1] = rw
         row[2] = major
         row[3] = minor
-        row[4] = c[3]
+        row[4] = trace.sector
         row[5] = size
-        row[6] = c[1]
+        row[6] = trace.sequence
         row[7] = time
         row[8] = dev_to_float(major, minor)
         row[9] = 0
@@ -169,14 +190,13 @@ def read_events(fp, numpy.ndarray[numpy.float_t, ndim=1] row, tags, pid_map):
         if act == __BLK_TA_QUEUE and size > 0:
             row[0] = 0.0
             if tags:
-                tags[0] = c[6]
-                tags[1] = pid_map.get(c[6], "none")
+                tags[0] = trace.pid
+                tags[1] = pid_map.get(trace.pid, "none")
         elif act == __BLK_TA_COMPLETE and size > 0:
             row[0] = 1.0
         elif act == __BLK_TA_ISSUE and size > 0:
             row[0] = 4.0
-        skip = c[10]
-        if skip:
-            fp.read(skip)
+
+        skip_bytes(fd, trace.pdu_len, buf, 4096)
         break
     return ret

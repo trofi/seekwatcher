@@ -608,7 +608,8 @@ def run_blkparse(trace):
     for x in tracefiles:
         print "using tracefile %s" % os.path.join(trace_dir, x)
         fh = tempfile.NamedTemporaryFile(dir=".")
-        os.system('blkparse -q -D ' + trace_dir + ' -i ' + x + ' -d ' + fh.name + ' -O >& /dev/null')
+        os.system('blkparse -q -D ' + trace_dir + ' -i ' + x +
+                ' -d ' + fh.name + ' -O >& /dev/null')
         loaddata(fh, rd)
     return rd
 
@@ -676,23 +677,6 @@ def check_for_mencoder(encoder_prog=all):
 def translate_sector(dev, sector):
     return device_translate[dev] + sector;
 
-
-def process_input(input, type):
-    global devices_sector_max
-    global device_translate
-    global must_sort
-
-    if type == 0:
-        run = run_blkparse(input)
-    elif type == 1:
-        if input == "-":
-            p = sys.stdin
-        else:
-            p = open(input, 'r')
-        run = rundata.rundata()
-        loaddata(p, run)
-
-    return run
 
 # find either the highest or lowest value in stats
 # for a given column and change that cell in the table
@@ -763,8 +747,6 @@ parser.add_option("-d", "--device", help="Device for blktrace", default=[],
 parser.add_option("-D", "--blktrace-destination",
         help="Destination for blktrace", default=".")
 parser.add_option("-t", "--trace", help="blktrace file", default=[],
-                  action="append")
-parser.add_option("-f", "--file", help="parsed blktrace file", default=[],
                   action="append")
 parser.add_option("-p", "--prog", help="exec program", default="")
 parser.add_option("", "--full-trace", help="Don't filter blktrace events",
@@ -897,7 +879,6 @@ if options.prog:
         options.title = options.prog
 
 graphs = [ [1, 'io'], [2, 'tput'], [3, 'seek'], [4, 'iops'], [5, 'stats'] ]
-#graphs = [ [1, 'io'], [2, 'tput'], [3, 'seek'], [5, 'stats'] ]
 
 # fix up our array of which graphs to print
 if options.only_graph:
@@ -948,11 +929,7 @@ devices_sector_max = {}
 device_translate = {}
 
 for x in options.trace:
-    run = process_input(x, 0)
-    runs.append(run)
-
-for x in options.file:
-    run = process_input(x, 1)
+    run = run_blkparse(x)
     runs.append(run)
 
 # if our traces included more than one device,
