@@ -216,9 +216,9 @@ cdef class rundata:
             if this_op == QUEUE_EVENT and should_tag:
                 if 'all' in options.merge or \
                         options.merge.count(tag_data[1]) > 0:
-                    v = tag_data[1]
+                    v = str(tag_data[1])
                 else:
-                    v = tag_data[1] + "(" + tag_data[0] + ")"
+                    v = str(tag_data[1]) + "(" + str(tag_data[0]) + ")"
                 this_tag = tags.setdefault(v, len(tags))
 
             row[9] = this_tag
