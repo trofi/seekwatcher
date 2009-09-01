@@ -607,9 +607,9 @@ def run_blkparse(trace):
 
     for x in tracefiles:
         print "using tracefile %s" % os.path.join(trace_dir, x)
-        p = os.popen('blkparse -q -D ' + trace_dir + ' -i ' + x +
-                     ' -f "%a %d %M %m %S %N %s %5T.%9t %D' + proc_tags + '\n"')
-        loaddata(p, rd)
+        fh = tempfile.NamedTemporaryFile(dir=".")
+        os.system('blkparse -q -D ' + trace_dir + ' -i ' + x + ' -d ' + fh.name + ' -O >& /dev/null')
+        loaddata(fh, rd)
     return rd
 
 def getlabel(i):
@@ -980,7 +980,7 @@ for i in xrange(len(runs)):
     runs[i].translate_run(devices_sector_max, device_translate)
 
     stats.append([0, 0, 0, round(runs[i].last_time, 2)])
-    if data:
+    if data != None:
         data = numpy.append(data, runs[i].data, axis=0)
     else:
         data = runs[i].data

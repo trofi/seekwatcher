@@ -1,5 +1,6 @@
 import numpy
 import sys
+import seekwatcher.blkparse
 cimport numpy
 
 cdef extern from "math.h":
@@ -197,40 +198,21 @@ cdef class rundata:
         cdef float this_size
 
         row = numpy.empty(10)
-        for i,line in enumerate(fh):
-            if len(line) == 0:
-                continue
+        pid_map = {}
+        if should_tag:
+            tag_data = [ 0, 0 ]
+        else:
+            tag_data = None
 
-            start = line[0]
-            if not start == 'Q' and not start == 'D' and not start == 'C':
-                continue
-
-            if not self.found_completion and start == 'C':
+        while seekwatcher.blkparse.read_events(fh, row, tag_data, pid_map) > 0:
+            this_op = row[0]
+            if not self.found_completion and this_op == COMPLETION_EVENT:
                 self.found_completion = 1
-            if not self.found_queue and start == 'Q':
+            if not self.found_queue and this_op == QUEUE_EVENT:
                 self.found_queue = 1
-            if not self.found_issued and start == 'D':
+            if not self.found_issued and this_op == DISPATCH_EVENT:
                 self.found_issued = 1
 
-            v = line.split(delimiter)
-            i = 0
-            while i < len(v):
-                if i == 0:
-                    row[0] = flag2num(v[i])
-                elif i == 1:
-                    row[1] = command2num(v[i])
-                elif i == 8:
-                    row[8] = dev2num(v[i])
-                elif i < 9:
-                    row[i] = float(v[i])
-                elif should_tag:
-                    if i == 9:
-                        tag_data = [v[i]]
-                    elif i > 9:
-                        tag_data.append(v[i])
-                i += 1
-
-            this_op = row[0]
             if this_op == QUEUE_EVENT and should_tag:
                 if 'all' in options.merge or \
                         options.merge.count(tag_data[1]) > 0:
