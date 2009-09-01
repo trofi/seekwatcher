@@ -317,7 +317,7 @@ cdef class moviedata:
         xval = fmod(sector, self.num_cells)
         return (xval + 5, yval + 5)
 
-    cdef make_frame(self, float start, float end, read_xvals, read_yvals,
+    def make_frame(self, float start, float end, read_xvals, read_yvals,
             write_xvals, write_yvals, prev):
         cdef int datalen = len(self.data)
         cdef numpy.ndarray[DTYPE_t, ndim=2] data = self.data
