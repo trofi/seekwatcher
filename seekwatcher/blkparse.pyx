@@ -171,7 +171,8 @@ def read_events(fp, numpy.ndarray[numpy.float_t, ndim=1] row, tags, pid_map):
             skip_bytes(fd, trace.pdu_len, buf, 4096)
             continue
         
-        time = float(trace.time) / 1000000000.0
+        time = trace.time
+        time = time / 1000000000.0
         rw = action & BLK_TC_ACT(BLK_TC_WRITE) != 0
         major = MAJOR(trace.device)
         minor = MINOR(trace.device)

@@ -12,33 +12,6 @@ cdef float QUEUE_EVENT = 0.0
 cdef float COMPLETION_EVENT = 1.0
 cdef float DISPATCH_EVENT = 4.0
 ctypedef numpy.float_t DTYPE_t
-
-cdef float flag2num(flag):
-    flag = flag[0]
-    if flag == 'Q':
-        return QUEUE_EVENT
-    if flag == 'C':
-        return COMPLETION_EVENT
-    if flag == 'U':
-        return 2.0
-    if flag == 'D':
-        return DISPATCH_EVENT
-    return 3.0
-    sys.stderr.write("unknown flag %s\n" %flag)
-
-cdef float command2num(com):
-    start = com[0]
-    if start == 'R':
-        return 0.0
-    if start == 'W':
-        return 1.0
-    return 2.0
-    sys.stderr.write("unknown command %s\n" % com)
-
-cdef float dev2num(dev):
-    s2 = dev.replace(',', '.')
-    return float(s2)
-
 cdef int ROWINC = 16384
 
 #
@@ -332,7 +305,7 @@ cdef class moviedata:
         self.sectors_per_cell = sectors_per_cell
         self.num_cells = num_cells
 
-    def xycalc(self, float sector):
+    cdef xycalc(self, float sector):
         cdef float xval
         cdef float yval
 
@@ -344,7 +317,7 @@ cdef class moviedata:
         xval = fmod(sector, self.num_cells)
         return (xval + 5, yval + 5)
 
-    def make_frame(self, float start, float end, read_xvals, read_yvals,
+    cdef make_frame(self, float start, float end, read_xvals, read_yvals,
             write_xvals, write_yvals, prev):
         cdef int datalen = len(self.data)
         cdef numpy.ndarray[DTYPE_t, ndim=2] data = self.data
