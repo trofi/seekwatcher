@@ -1244,7 +1244,10 @@ if plot:
     ticks = a.get_yticks()
     ticks = list(arange(0, ticks[-1] + ticks[-1]/6, ticks[-1]/4))
     a.set_yticks(ticks)
-    a.set_yticklabels( [ str(int(x)) for x in ticks ])
+    if ticks[-1] < len(ticks) * 2:
+        a.set_yticklabels( [ "%.2f" % x for x in ticks ])
+    else:
+        a.set_yticklabels( [ str(int(x)) for x in ticks ])
 
     if plot[2] == 1:
         a.set_title(options.title + 'Seek Count')
