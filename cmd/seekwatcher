@@ -62,6 +62,7 @@ tags = { "": 0 }
 try:
     from matplotlib import rcParams
     from matplotlib.font_manager import fontManager, FontProperties
+
     import numpy
 except:
     sys.stderr.write("matplotlib not found, using blktrace only mode\n")
@@ -712,7 +713,7 @@ def highlight_row(stats, cells, col, num_rows, find_max):
 def format_table_cells(stats, cells, num_rows):
     for key,cell in cells.items():
         pt = cell.get_fontsize()
-        if (pt > 6):
+        if (pt > 7):
             cell.set_fontsize(pt - 1)
 
     highlight_row(stats, cells, 0, num_rows, False)
@@ -722,9 +723,20 @@ def format_table_cells(stats, cells, num_rows):
 
 # if a given label should be graphed, this returns the subplot number.
 def should_graph(graphs, label):
+    cols = options.columns
+    rows = (len(graphs) + cols - 1) / cols
+    col_last_row = len(graphs) % cols
+    bottom_row = rows
+
     for x in graphs:
-        if label == x[1]:
-            return len(graphs), 1, x[0]
+        if label != x[1]:
+            continue
+
+        this_row = (x[0] - 1) / cols + 1
+        if this_row == bottom_row and col_last_row == 1:
+            return (rows, col_last_row, rows + x[0] % col_last_row)
+        # rows, columns, plot number
+        return rows, cols, x[0]
     return None
 
 def sort_by_time(data):
@@ -740,6 +752,36 @@ def sort_by_time(data):
     X.shape = (lines, 10)
     return X
 
+def parse_legend_pos(str):
+    if not str:
+        return None
+    words = str.split(',')
+    return float(words[0]), float(words[1])
+
+def parse_plot_adjust(str):
+    words = [ "right=0.79", "hspace=0.8" ]
+    if options.columns > 1:
+        words.append("wspace=0.6")
+        words.append("hspace=1")
+
+    if str:
+        words += str.split(',')
+    d = {}
+    for x in words:
+        key, value = x.split('=')
+        value = float(value)
+        d[key] = value
+    return d
+
+def title_axis(a, str):
+    title_y = 1.03
+    if (force_legend and force_legend[1] >= 1 and
+        force_legend[0] < 1 and force_legend[0] >= 0):
+        title_y = force_legend[1] + 0.2
+
+    a.text(0.5, title_y, str, fontsize="large",
+            horizontalalignment='center', transform = a.transAxes)
+
 usage = "usage: %prog [options]"
 parser = OptionParser(usage=usage)
 parser.add_option("-d", "--device", help="Device for blktrace", default=[],
@@ -753,8 +795,13 @@ parser.add_option("", "--full-trace", help="Don't filter blktrace events",
                   default=False, action="store_true")
 
 if not blktrace_only:
+    parser.add_option("-a", "--adjust",
+        help="Adjust plot placement: left=0.125,right=0.79,bottom=0.1,top=0.9,wspace=0.2,hspace=0.8",
+        default="")
     parser.add_option("-c", "--colors", help="List of colors to use in plot",
             default="")
+    parser.add_option("-C", "--columns", help="Number of columns for subplots",
+            default=1, type="int")
     parser.add_option("-z", "--zoom", help="Zoom range min:max (in MB)",
                       default="")
     parser.add_option("-x", "--xzoom", help="Time range min:max (seconds)",
@@ -799,6 +846,10 @@ if not blktrace_only:
                       default=False, action="store_true")
     parser.add_option("-M", "--merge", help="Merge process pids for a process",
                         default=[], action="append")
+    parser.add_option("", "--legend", help="Legend position 1.01,0.5",
+                        default=None)
+    parser.add_option("", "--legend-columns", help="Legend columns",
+                        default=1, type="int")
 
     mencoder_found = check_for_mencoder()
     if mencoder_found:
@@ -816,6 +867,8 @@ if not blktrace_only:
                           default="16000")
 
 (options,args) = parser.parse_args()
+adjust_kwargs = parse_plot_adjust(options.adjust)
+force_legend = parse_legend_pos(options.legend)
 
 if options.colors:
     plot_colors = options.colors.split(',')
@@ -1071,6 +1124,17 @@ if options.title:
     options.title += "\n"
 
 total_graphs = len(graphs)
+legend_args = dict(shadow=True, borderpad=0.5, numpoints=2,
+                   ncol=options.legend_columns,
+                   handletextpad = 0.005,
+                   labelspacing = 0.01,
+                   prop=FontProperties(size='x-small'))
+
+legend_args['loc'] = force_legend or (1.01, 0.8)
+
+if (force_legend and force_legend[0] == 0 and (force_legend[1] < 0 or
+    force_legend[1] > 1)):
+    legend_args['mode'] = 'expand'
 
 # Prepare ticks
 # make sure the final second goes on the x axes
@@ -1094,7 +1158,7 @@ if plot:
     af = AnnoteFinder(axis=a)
     connect('button_press_event', af)
     connect('button_release_event', af)
-    a.set_title(options.title + 'Disk IO')
+    title_axis(a, options.title + 'Disk IO')
     a.set_ylabel('Disk offset (MB)')
     flag = data[:,0]
     sectors = data[:,4]
@@ -1130,16 +1194,19 @@ if plot:
     for x in all_lines:
         x.set_markersize(5)
 
+    data_legend_args = dict(legend_args)
+    data_legend_args['numpoints'] = 1
+
     if total_graphs == 1:
         ncol = min(4, len(tags.keys()))
         # matplotlib throws an error if there are fewer labels than
         # columns.  So, we loop.
+        loc = force_legend or (-0.1,-0.25)
+        data_legend_args['loc'] = loc
         while ncol > 1:
             try:
-                a.legend(loc=(-0.1,-0.25), ncol=ncol, columnspacing=0.1,
-                        shadow=True, borderpad=0.3, numpoints=1,
-                        handletextpad = 0.005, labelspacing = 0.01,
-                        prop=FontProperties(size='x-small') )
+                data_legend_args['ncol'] = ncol
+                a.legend(**data_legend_args)
                 break
             except:
                 if ncol == 1:
@@ -1148,18 +1215,12 @@ if plot:
 
         subplots_adjust(bottom=0.2)
     else:
-        a.legend(loc=(legend_pos, 0.8), shadow=True, borderpad=0.3,
-                numpoints=1, handletextpad = 0.005, labelspacing = 0.01,
-                prop=FontProperties(size='x-small') )
+        a.legend(**data_legend_args)
 
     # our legend is generated, set the marker size correctly again
     for x in all_lines:
         x.set_markersize(options.io_graph_marker_size)
     a.set_ylim(yzoommin, yzoommax)
-    
-    # the bottom graph gets xticks, set it here
-    if plot[2] == bottom_graph:
-        a.set_xlabel('Time (seconds)')
 
 plot = should_graph(graphs, 'tput')
 if plot:
@@ -1183,19 +1244,13 @@ if plot:
         a.set_yticklabels( [ "%d" % x for x in ticks ])
 
     if plot[2] == 1:
-        a.set_title(options.title + 'Throughput')
+        title_axis(a, options.title + 'Throughput')
     else:
-        a.set_title('Throughput')
+        title_axis(a, 'Throughput')
     a.set_ylabel('MB/s')
 
-    # the bottom graph gets xticks, set it here
-    if plot[2] == bottom_graph:
-        a.set_xlabel('Time (seconds)')
     if options.label:
-        a.legend(loc=(1.01, 0.5), shadow=True, borderpad=0.5, numpoints=2,
-                      handletextpad = 0.005,
-                      labelspacing = 0.01,
-                      prop=FontProperties(size='x-small') )
+        a.legend(**legend_args)
 
 plot = should_graph(graphs, 'iops')
 if plot:
@@ -1218,19 +1273,13 @@ if plot:
         a.set_yticklabels( [ "%d" % x for x in ticks ])
 
     if plot[2] == 1:
-        a.set_title(options.title + 'IOPs')
+        title_axis(a, options.title + 'IOPs')
     else:
-        a.set_title('IOPs')
+        title_axis(a, 'IOPs')
     a.set_ylabel('IO / sec')
 
-    # the bottom graph gets xticks, set it here
-    if plot[2] == bottom_graph:
-        a.set_xlabel('Time (seconds)')
     if options.label:
-        a.legend(loc=(1.01, 0.5), shadow=True, borderpad=0.5, numpoints=2,
-                      handletextpad = 0.005,
-                      labelspacing = 0.01,
-                      prop=FontProperties(size='x-small') )
+        a.legend(**legend_args)
 
 plot = should_graph(graphs, 'seek')
 if plot:
@@ -1250,21 +1299,15 @@ if plot:
         a.set_yticklabels( [ str(int(x)) for x in ticks ])
 
     if plot[2] == 1:
-        a.set_title(options.title + 'Seek Count')
+        title_axis(a, options.title + 'Seek Count')
     else:
-        a.set_title('Seek Count')
+        title_axis(a, 'Seek Count')
 
     a.set_ylabel('Seeks / sec')
     if options.label:
-        a.legend(loc=(1.01, 0.5), shadow=True, borderpad=0.5, numpoints=2,
-                      handletextpad = 0.005,
-                      labelspacing = 0.01,
-                      prop=FontProperties(size='x-small') )
-    # the bottom graph gets xticks, set it here
-    if plot[2] == bottom_graph:
-        a.set_xlabel('Time (seconds)')
+        a.legend(**legend_args)
 
-subplots_adjust(right = 0.79, hspace=0.4)
+subplots_adjust(**adjust_kwargs)
 
 plot = should_graph(graphs, 'stats')
 if plot:
@@ -1272,6 +1315,7 @@ if plot:
     # results.
     table_labels = [ getlabel(x) for x in xrange(len(runs)) ]
     a = subplot(*plot)
+    stats_plot = a
     a.set_frame_on(False)
     t = a.table(cellText=stats, rowLabels=table_labels,
             colLabels = ('Avg Seeks/s', 'Avg MB/s', 'Avg IO/s', 'Run time'),
@@ -1281,22 +1325,33 @@ if plot:
     format_table_cells(stats, cells, len(runs))
 
     if plot[2] == 1:
-        a.set_title(options.title)
+        title_axis(a, options.title)
     a.set_xticks([])
     a.set_yticks([])
 
+cols = options.columns
+rows = (len(graphs) + cols - 1) / cols
+bottom_row = bottom_graph / cols
+
 # finally, some global bits for each subplot
 for x in xrange(1, bottom_graph + 1):
-    a = subplot(total_graphs, 1, x)
+    a = subplot(rows, cols, x)
 
+    this_row = (x - 1) / cols + 1
     # turn off the xtick labels on the graphs above the bottom
-    if not options.interactive and x < bottom_graph:
+    if not options.interactive and this_row < bottom_row:
         a.set_xticklabels([])
     elif options.interactive:
         a.set_xticks(xticks)
         a.set_xticklabels(xticklabels)
+        a.set_xlabel('Time (seconds)')
+    else:
+        a.set_xlabel('Time (seconds)')
 
     for t in a.yaxis.get_majorticklabels():
+        t.set_fontsize(8)
+
+    for t in a.xaxis.get_majorticklabels():
         t.set_fontsize(8)
 
     # create dashed lines for each ytick

@@ -211,13 +211,6 @@ cdef class rundata:
 
             devices_sector_max[this_dev] = max(this_sector + this_size,
                                     devices_sector_max.get(this_dev, 0));
-            # everything from here on is for the IO graph.
-            # so we try to cut down on the stuff we keep in ram
-            if not io_plot:
-                if not first_line:
-                    self.add_data_row(self.data, self.last_line)
-                    first_line = 1
-                continue
 
             if should_tag:
                 if this_op != QUEUE_EVENT and self.found_queue:
