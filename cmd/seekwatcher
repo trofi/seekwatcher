@@ -710,16 +710,14 @@ def highlight_row(stats, cells, col, num_rows, find_max):
 # Fixes up font sizes and does highlights for the
 # best value in each column
 #
-def format_table_cells(stats, cells, num_rows):
+def format_table_cells(stats, cells, num_rows, col_high):
     for key,cell in cells.items():
         pt = cell.get_fontsize()
         if (pt > 7):
             cell.set_fontsize(pt - 1)
 
-    highlight_row(stats, cells, 0, num_rows, False)
-    highlight_row(stats, cells, 1, num_rows, True)
-    highlight_row(stats, cells, 2, num_rows, True)
-    highlight_row(stats, cells, 3, num_rows, False)
+    for i, x in enumerate(col_high):
+        highlight_row(stats, cells, i, num_rows, x)
 
 # if a given label should be graphed, this returns the subplot number.
 def should_graph(graphs, label):
@@ -1313,16 +1311,56 @@ plot = should_graph(graphs, 'stats')
 if plot:
     # create a table with a summary of all the
     # results.
+
+    # we want to make sure we only print labels for the graphs
+    # that were done
+    check_labels = [ ['seek', 'Avg Seeks/s', False ], \
+                     ['tput', 'Avg MB/s', True ], \
+                     ['iops', 'Avg IO/s', True ] ]
+
+    # graph_stats has all the stats we decide to put in
+    # the table
+    graph_stats = stats
+
+    # graph labels are the column headers
+    graph_labels = []
+
+    # highlights is an array of true/false telling us
+    # which columns should have the max highlighted.  IF
+    # false we highlight the min instead
+    highlights = []
+
+    for i,x in enumerate(check_labels):
+        if should_graph(graphs, x[0]):
+            graph_labels.append(x[1])
+            highlights.append(x[2])
+        else:
+            # just put a None in that cell, we'll go back
+            # and delete all the Nones
+            for d in graph_stats:
+                d[i] = None
+            
+    # ugly trick so we can just delete the indexes from the
+    # stats row.  We do it in reverse order so the index
+    # number doesn't change as we work
+    for row in graph_stats:
+        for i in xrange(len(row) - 1, -1, -1):
+            if row[i] == None:
+                del row[i]
+
+    graph_labels.append('Run time (s)')
+    highlights.append(False)
+
     table_labels = [ getlabel(x) for x in xrange(len(runs)) ]
     a = subplot(*plot)
     stats_plot = a
     a.set_frame_on(False)
-    t = a.table(cellText=stats, rowLabels=table_labels,
-            colLabels = ('Avg Seeks/s', 'Avg MB/s', 'Avg IO/s', 'Run time'),
+    t = a.table(cellText=graph_stats, rowLabels=table_labels,
+            colLabels = graph_labels,
             loc=(0.5, 0.99))
 
     cells = t.get_celld()
-    format_table_cells(stats, cells, len(runs))
+    format_table_cells(graph_stats, cells, len(runs), highlights)
 
     if plot[2] == 1:
         title_axis(a, options.title)
