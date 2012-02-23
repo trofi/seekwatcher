@@ -610,7 +610,7 @@ def run_blkparse(trace):
         print "using tracefile %s" % os.path.join(trace_dir, x)
         fh = tempfile.NamedTemporaryFile(dir=".")
         os.system('blkparse -q -D ' + trace_dir + ' -i ' + x +
-                ' -d ' + fh.name + ' -O >& /dev/null')
+                ' -d ' + fh.name + ' -O > /dev/null 2>&1')
         loaddata(fh, rd)
     return rd
 
