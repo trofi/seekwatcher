@@ -884,7 +884,7 @@ if not blktrace_only:
         rcParams['interactive'] = 'False'
     from pylab import *
 
-if not options.trace and not options.file:
+if not options.trace:
     parser.print_help()
     sys.exit(1)
 
