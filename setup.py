@@ -4,7 +4,7 @@ import numpy
 
 setup(
     name='seekwatcher',
-    version="0.50",
+    version="0.13",
     cmdclass={'build_ext': build_ext},
     ext_modules=[
         Extension(
