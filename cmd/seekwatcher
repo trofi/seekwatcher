@@ -150,7 +150,7 @@ def data_movie(run):
         alpha = 0.1
         a.hold(False)
 
-        for x in xrange(len(prev)):
+        for x in range(len(prev)):
             readx, ready, writex, writey = prev[x]
             if x == len(prev) - 1:
                 alpha = 1.0
@@ -310,7 +310,7 @@ def plot_data(ax, data, style, label, legend_colors, alpha=1):
         reduce = {}
         skipped = 0
         last_dev = {}
-        for i in xrange(len(times)):
+        for i in range(len(times)):
             dev = data[i][8]
             sector = sectors[i]
             io_size = data[i][5] / 512
@@ -701,7 +701,7 @@ def highlight_row(stats, cells, col, num_rows, find_max):
     val = 0
     max_val = 0
     max = []
-    for row in xrange(0, num_rows):
+    for row in range(0, num_rows):
         x = stats[row][col]
         if find_max:
             if not max or x > max_val:
@@ -1009,7 +1009,7 @@ if len(devices_sector_max) > 1:
 
 stats = []
 data = None
-for i in xrange(len(runs)):
+for i in range(len(runs)):
     if not runs[i].last_time:
         sys.stderr.write("Empty blktrace run found, exiting\n")
         sys.exit(1)
@@ -1060,7 +1060,7 @@ if not options.zoom or ':' not in options.zoom:
 
     m = max(hist)
 
-    for x in xrange(len(hist)):
+    for x in range(len(hist)):
         if m == hist[x]:
             maxi = x
     # hist[maxi] is the most common bucket.  walk toward it from the
@@ -1068,13 +1068,13 @@ if not options.zoom or ':' not in options.zoom:
     # significant portion of the data
     #
     yzoommin = maxi * step + sectormin
-    for x in xrange(0, maxi):
+    for x in range(0, maxi):
         if hist[x] > hist[maxi] * .05:
             yzoommin = x * step + sectormin
             break
 
     yzoommax = (maxi + 1) * step + sectormin
-    for x in xrange(len(hist) - 1, maxi, -1):
+    for x in range(len(hist) - 1, maxi, -1):
         if hist[x] > hist[maxi] * .05:
             yzoommax = (x + 1) * step + sectormin
             break
@@ -1157,7 +1157,7 @@ plot = should_graph(graphs, 'io')
 if plot:
     a = subplot(*plot)
     all_lines = []
-    for i in xrange(len(runs)):
+    for i in range(len(runs)):
         label = getlabel(i)
         all_lines += plot_data(a, runs[i].data, options.io_graph_dots, label,
                                 legend_colors)
@@ -1184,7 +1184,7 @@ if plot:
     #
     ll = device_translate.items()
     if len(ll) > 1:
-        for x in xrange(len(ll)):
+        for x in range(len(ll)):
             dev, val = ll[x]
             dev = round(dev, 2)
             a.axhline(val, lw=0.1, color='black')
@@ -1233,7 +1233,7 @@ plot = should_graph(graphs, 'tput')
 if plot:
     # Throughput goes at the botoom
     a = subplot(*plot)
-    for i in xrange(len(runs)):
+    for i in range(len(runs)):
         label = getlabel(i)
         plot_throughput(a, runs[i], stats[i], '-', label)
 
@@ -1262,7 +1262,7 @@ if plot:
 plot = should_graph(graphs, 'iops')
 if plot:
     a = subplot(*plot)
-    for i in xrange(len(runs)):
+    for i in range(len(runs)):
         label = getlabel(i)
         plot_iops(a, runs[i], stats[i], '-', label)
 
@@ -1292,7 +1292,7 @@ plot = should_graph(graphs, 'seek')
 if plot:
     # next is the seek count graph
     a = subplot(*plot)
-    for i in xrange(len(runs)):
+    for i in range(len(runs)):
         label = getlabel(i)
         plot_seek_count(a, runs[i], stats[i], '-', label)
 
@@ -1353,14 +1353,14 @@ if plot:
     # stats row.  We do it in reverse order so the index
     # number doesn't change as we work
     for row in graph_stats:
-        for i in xrange(len(row) - 1, -1, -1):
+        for i in range(len(row) - 1, -1, -1):
             if row[i] == None:
                 del row[i]
 
     graph_labels.append('Run time (s)')
     highlights.append(False)
 
-    table_labels = [ getlabel(x) for x in xrange(len(runs)) ]
+    table_labels = [ getlabel(x) for x in range(len(runs)) ]
     a = subplot(*plot)
     stats_plot = a
     a.set_frame_on(False)
@@ -1381,7 +1381,7 @@ rows = (len(graphs) + cols - 1) / cols
 bottom_row = bottom_graph / cols
 
 # finally, some global bits for each subplot
-for x in xrange(1, bottom_graph + 1):
+for x in range(1, bottom_graph + 1):
     a = subplot(rows, cols, x)
 
     this_row = (x - 1) / cols + 1
