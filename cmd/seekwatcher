@@ -173,8 +173,8 @@ def data_movie(run):
     movie_fps = int(options.movie_frames)
     total_frames = movie_length * movie_fps
     secs_per_frame = total_secs / total_frames
-    print "total frames is %d secs per frame = %.2f\n" % (total_frames,
-                                                          secs_per_frame)
+    print("total frames is %d secs per frame = %.2f\n" % (total_frames,
+                                                          secs_per_frame))
     start_second = xmin
 
     figindex = 0
@@ -256,7 +256,7 @@ def data_movie(run):
         tput_ax.set_xlim(xmin, xmax)
         seek_ax.set_xlim(xmin, xmax)
 
-        print "start %.2f secs end %.2f secs frame %d" % (start, end, figindex)
+        print("start %.2f secs end %.2f secs frame %d" % (start, end, figindex))
         f.savefig("%s-%.6d.%s" % (fname, figindex, "png"), dpi=options.dpi)
         line.set_linestyle('None')
         line2.set_linestyle('None')
@@ -528,7 +528,7 @@ def run_one_blktrace(trace, device):
             options.blktrace_destination ]
     if not options.full_trace:
         args += [ "-a", "queue", "-a", "complete", "-a", "issue" ]
-    print " ".join(args)
+    print(" ".join(args))
     return os.spawnlp(os.P_NOWAIT, *args)
 
 def run_blktrace(trace, devices):
@@ -564,7 +564,7 @@ def run_prog(program, trace, devices):
             try:
                 os.system("dd if=%s of=/dev/zero bs=16k count=1 iflag=direct > /dev/null 2>&1" % x)
             except:
-                print "O_DIRECT read from %s failed trying buffered" % x
+                print("O_DIRECT read from %s failed trying buffered" % x)
                 b = file(x).read(1024 * 1024)
 
     signal.signal(signal.SIGTERM, killblktracers)
@@ -607,7 +607,7 @@ def run_blkparse(trace):
         proc_tags = ""
 
     for x in tracefiles:
-        print "using tracefile %s" % os.path.join(trace_dir, x)
+        print("using tracefile %s" % os.path.join(trace_dir, x))
         fh = tempfile.NamedTemporaryFile(dir=".")
         os.system('blkparse -q -D ' + trace_dir + ' -i ' + x +
                 ' -d ' + fh.name + ' -O > /dev/null 2>&1')
@@ -621,7 +621,7 @@ def getlabel(i):
 
 def line_picker(line, mouseevent):
     if mouseevent.xdata is None: return False, dict()
-    print "%d %d\n", mouseevent.xdata, mouseevent.ydata
+    print("%d %d\n", mouseevent.xdata, mouseevent.ydata)
     return False, dict()
 
 def running_config():
@@ -895,7 +895,7 @@ if mencoder_found and options.movie:
     # specifying an output file name that ends in mpg.
     if options.output.endswith((".mpg", ".mpeg", ".MPG", ".MPEG")):
         if not check_for_mencoder("mencoder"):
-            print "mencoder required for encoding mpegs. Try using -o fname.ogg"
+            print("mencoder required for encoding mpegs. Try using -o fname.ogg")
             sys.exit(1)
         mencoder = "mencoder"
     elif options.output.endswith((".ogg", ".OGG")):
@@ -910,9 +910,8 @@ if mencoder_found and options.movie:
         movie_name = "trace.ogg"
         mencoder = "png2theora"
     else:
-        print "Error: please specify an output file name that ends in " \
-              ".ogg or .mpg"
-	sys.exit(1)
+        print("Error: please specify an output file name that ends in .ogg or .mpg")
+        sys.exit(1)
 
 if options.prog:
     check_for_kernel_feature("DEBUG_FS")
@@ -960,7 +959,7 @@ for x in graphs:
     total += 1
 
 if len(graphs) == 0:
-    print "No graphs selected, exiting"
+    print("No graphs selected, exiting")
     sys.exit(1)
 
 # the bottom graph gets the xticks label,
@@ -1112,7 +1111,7 @@ if mencoder_found and options.movie:
 try:
     sizes = options.figure_size.split('x')
 except:
-    print "Invalid figure size %s, using 8x10" % options.figure_size
+    print("Invalid figure size %s, using 8x10" % options.figure_size)
     sizes = ["8", "6" ]
 
 sizes = [ int(x) for x in sizes ]
@@ -1405,7 +1404,7 @@ for x in xrange(1, bottom_graph + 1):
     a.set_xlim(xmin, xmax)
 
 if not options.interactive:
-    print "saving graph to %s" % options.output
+    print("saving graph to %s" % options.output)
     savefig(options.output, dpi=options.dpi, orientation='landscape')
 
 show()
