@@ -52,8 +52,15 @@
 # Free Software Foundation, Inc., 59 Temple Place - Suite 330,
 # Boston, MA 021110-1307, USA.
 #
-import sys, os, signal, time, commands, tempfile, signal
+import commands
+import os
+import signal
+import sys
+import tempfile
+import time
+
 from optparse import OptionParser
+
 from seekwatcher import rundata
 
 blktrace_only = False
