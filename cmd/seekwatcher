@@ -52,7 +52,7 @@
 # Free Software Foundation, Inc., 59 Temple Place - Suite 330,
 # Boston, MA 021110-1307, USA.
 #
-import commands
+import subprocess
 import os
 import signal
 import sys
@@ -636,7 +636,9 @@ def running_config():
 	"""
 	Return path of config file of the currently running kernel
 	"""
-	version = commands.getoutput('uname -r')
+	# uname -r
+	version = os.uname()[2]
+
 	for config in ('/proc/config.gz', \
                        '/boot/config-%s' % version,
                        '/lib/modules/%s/build/.config' % version):
@@ -657,12 +659,12 @@ def check_for_kernel_feature(feature):
 		grep = 'grep'
 	grep += ' ^CONFIG_%s= %s' % (feature, config)
 
-	if not commands.getoutput(grep):
+	if not subprocess.check_output(grep, shell=True):
 		sys.stderr.write("Kernel doesn't have a %s feature\n" % (feature))
 		sys.exit(1)
 
 def check_for_debugfs():
-    tmp = commands.getoutput('mount | grep /sys/kernel/debug')
+    tmp = subprocess.check_output('mount | grep /sys/kernel/debug', shell=True)
     tmp = len(tmp)
     if tmp == 0:
         sys.stderr.write("debugfs not mounted (/sys/kernel/debug)\n")
