@@ -164,6 +164,7 @@ cdef class rundata:
         cdef int i
         cdef int this_tag
         cdef float this_op
+        cdef float last_op
         cdef float this_time
         cdef float this_dev
         cdef float this_sector
