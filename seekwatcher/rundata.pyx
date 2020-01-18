@@ -231,7 +231,8 @@ cdef class rundata:
                 if this_op == DISPATCH_EVENT and self.found_completion:
                     continue
 
-            if last_row != None:
+            # Avoid numpy's assertion failure when we do bool compare
+            if not isinstance(last_row, type(None)):
                 if (this_op == last_op and 
                 this_rw == last_rw and
                 this_dev == last_dev and
@@ -254,7 +255,8 @@ cdef class rundata:
             last_dev = this_dev
             last_tag = this_tag
 
-        if last_row != None:
+        # Avoid numpy's assertion failure when we do bool compare
+        if not isinstance(last_row, type(None)):
             if last_row.any():
                 self.add_data_row(self.data, last_row)
                 total_out += 1
