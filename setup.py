@@ -10,11 +10,11 @@ setup(
         Extension(
             'seekwatcher.rundata',
             ['seekwatcher/rundata.pyx'],
-            include_dirs = [numpy.get_include(),'.']),
+            include_dirs = [numpy.get_include()]),
         Extension(
             'seekwatcher.blkparse',
             ['seekwatcher/blkparse.pyx'],
-            include_dirs = [numpy.get_include(),'.'])
+            include_dirs = [numpy.get_include()])
     ],
     scripts=['cmd/seekwatcher'],
     packages=['seekwatcher'])
