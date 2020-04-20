@@ -329,7 +329,7 @@ cdef class moviedata:
             time = row[7]
             self.datai += 1
             if time < start:
-                print "dropping time %.2f < start %.2f" % (time, start)
+                print("dropping time %.2f < start %.2f" % (time, start))
                 continue
             if time > self.xmax:
                 continue
