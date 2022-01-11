@@ -4,8 +4,8 @@ import seekwatcher.blkparse
 cimport numpy
 
 cdef extern from "math.h":
-    float floor(float val)
-    float ceil(float val)
+    double floor(double val)
+    double ceil(double val)
     double fmod(double x, double y)
 
 cdef float QUEUE_EVENT = 0.0
