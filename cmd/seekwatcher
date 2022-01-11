@@ -284,19 +284,19 @@ def data_movie(run):
 def save_color(label, rw, color, legend_colors):
     if not label:
         return
-    if rw == None:
+    if rw is None:
         rw = 0
     legend_colors.setdefault((label, rw), color)
 
 def pick_color(label, rw, legend_colors):
-    if rw == None:
+    if rw is None:
         this_rw = 0
     else:
         this_rw = rw
     val = legend_colors.get((label, this_rw), None)
     if val:
         return val
-    if rw == None:
+    if rw is None:
         val = legend_colors.get((label, 1), None)
         if val:
             return val
@@ -1017,10 +1017,10 @@ for i in range(len(runs)):
     runs[i].translate_run(devices_sector_max, device_translate)
 
     stats.append([0, 0, 0, round(runs[i].last_time, 2)])
-    if data != None:
-        data = numpy.append(data, runs[i].data, axis=0)
-    else:
+    if data is None:
         data = runs[i].data
+    else:
+        data = numpy.append(data, runs[i].data, axis=0)
 
 
 # data includes offset numbers from all the runs.  This allows us to scale the
@@ -1091,7 +1091,7 @@ times = data[:,7]
 xmin = numpy.min(times)
 xmax = numpy.max(times)
 
-if options.rolling_avg == None:
+if options.rolling_avg is None:
     options.rolling_avg = max(1, int((xmax - xmin) / 25))
 else:
     options.rolling_avg = max(1, int(options.rolling_avg))
@@ -1348,13 +1348,13 @@ if plot:
             # and delete all the Nones
             for d in graph_stats:
                 d[i] = None
-            
+
     # ugly trick so we can just delete the indexes from the
     # stats row.  We do it in reverse order so the index
     # number doesn't change as we work
     for row in graph_stats:
         for i in range(len(row) - 1, -1, -1):
-            if row[i] == None:
+            if row[i] is None:
                 del row[i]
 
     graph_labels.append('Run time (s)')
@@ -1418,4 +1418,3 @@ if not options.interactive:
     savefig(options.output, dpi=options.dpi, orientation='landscape')
 
 show()
-
