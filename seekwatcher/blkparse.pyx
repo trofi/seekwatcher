@@ -4,7 +4,7 @@ import os
 cimport numpy
 cdef extern from "unistd.h":
    int read(int fd, void *buf, int count)
-    
+
 cdef extern from "inttypes.h":
     ctypedef int uint32_t
     ctypedef int uint64_t
@@ -170,7 +170,7 @@ def read_events(fp, numpy.ndarray[numpy.float_t, ndim=1] row, tags, pid_map):
             act != __BLK_TA_ISSUE)):
             skip_bytes(fd, trace.pdu_len, buf, 4096)
             continue
-        
+
         time = trace.time
         time = time / 1000000000.0
         rw = action & BLK_TC_ACT(BLK_TC_WRITE) != 0
