@@ -25,3 +25,13 @@ which worked for me:
 - cython: 0.29.24
 - numpy: 1.21.4
 - matplotlib: 3.5.1
+
+# Release procedure
+
+Add a tag v${version} and push it to github:
+
+```
+version=0.15
+git tag -s "v${version}" -m "release ${version}"
+git push --tags origin
+```
