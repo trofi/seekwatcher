@@ -146,9 +146,8 @@ def data_movie(run):
         def plotone(a, x, y, color):
             a.plot(x, y, 's', color=color, mfc=color,
                    mec=color, markersize=options.movie_cell_size)
-            a.hold(True)
         alpha = 0.1
-        a.hold(False)
+        a.clear()
 
         for x in range(len(prev)):
             readx, ready, writex, writey = prev[x]
@@ -228,7 +227,7 @@ def data_movie(run):
     a.set_yticklabels([])
     a.set_xlim(0, num_cells)
     a.set_ylim(0, num_cells)
-    a.hold(False)
+    a.clear()
     datalen = len(data)
     bluemap = get_cmap("Blues")
     greenmap = get_cmap("Greens")
@@ -268,7 +267,6 @@ def data_movie(run):
         line.set_linestyle('None')
         line2.set_linestyle('None')
         figindex += 1
-    a.hold(True)
 
     if mencoder == "png2theora":
         r = os.system("png2theora -o %s %s" % (movie_name, fname) + '-%06d.png')
