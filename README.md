@@ -13,3 +13,15 @@ Until you know what you are doing please consider using `iowatcher` instead:
 - http://git.kernel.org/?p=linux/kernel/git/mason/iowatcher.git
 
 `iowatcher` reference: https://www.spinics.net/lists/linux-btrace/msg00869.html
+
+# Dependencies observed to work
+
+These are not minimum requiremenets, but versions I tried in Jan 2022
+which worked for me:
+
+- arch: x86_64
+- linux: 5.16
+- python: 3.7, 3.8, 3.9, 3.10
+- cython: 0.29.24
+- numpy: 1.21.4
+- matplotlib: 3.5.1
