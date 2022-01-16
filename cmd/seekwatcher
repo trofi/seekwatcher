@@ -732,7 +732,7 @@ def format_table_cells(stats, cells, num_rows, col_high):
 # if a given label should be graphed, this returns the subplot number.
 def should_graph(graphs, label):
     cols = options.columns
-    rows = (len(graphs) + cols - 1) / cols
+    rows = (len(graphs) + cols - 1) // cols
     col_last_row = len(graphs) % cols
     bottom_row = rows
 
@@ -740,7 +740,7 @@ def should_graph(graphs, label):
         if label != x[1]:
             continue
 
-        this_row = (x[0] - 1) / cols + 1
+        this_row = (x[0] - 1) // cols + 1
         if this_row == bottom_row and col_last_row == 1:
             return (rows, col_last_row, rows + x[0] % col_last_row)
         # rows, columns, plot number
@@ -756,7 +756,7 @@ def sort_by_time(data):
     times = data[:,7]
     sorted = times.argsort()
     X = numpy.fromiter(sort_iter(sorted), dtype=float)
-    lines = len(X) / 10
+    lines = len(X) // 10
     X.shape = (lines, 10)
     return X
 
@@ -1377,14 +1377,14 @@ if plot:
     a.set_yticks([])
 
 cols = options.columns
-rows = (len(graphs) + cols - 1) / cols
-bottom_row = bottom_graph / cols
+rows = (len(graphs) + cols - 1) // cols
+bottom_row = bottom_graph // cols
 
 # finally, some global bits for each subplot
 for x in range(1, bottom_graph + 1):
     a = subplot(rows, cols, x)
 
-    this_row = (x - 1) / cols + 1
+    this_row = (x - 1) // cols + 1
     # turn off the xtick labels on the graphs above the bottom
     if not options.interactive and this_row < bottom_row:
         a.set_xticklabels([])
