@@ -268,10 +268,11 @@ def data_movie(run):
         line2.set_linestyle('None')
         figindex += 1
 
-    if mencoder == "png2theora":
+    if ffmpeg == "png2theora":
         r = os.system("png2theora -o %s %s" % (movie_name, fname) + '-%06d.png')
     else:
-        r = os.system("mencoder mf://%s*.png -mf type=png:fps=%d -of mpeg -ovc lavc -lavcopts vcodec=mpeg2video:vbitrate=%s -oac copy -o %s" % (fname, movie_fps, options.movie_vbitrate, movie_name))
+        # enable high quality of compression and disregard bitrate
+        r = os.system("ffmpeg -i '%s-%%06d.png' -r %d -vcodec libx264 -crf 18 %s" % (fname, movie_fps, movie_name))
 
     for root, dirs, files in os.walk(png_dir):
         for name in files:
@@ -668,13 +669,13 @@ def check_for_debugfs():
         sys.stderr.write("debugfs not mounted (/sys/kernel/debug)\n")
         sys.exit(1)
 
-def check_for_mencoder(encoder_prog=all):
+def check_for_ffmpeg(encoder_prog=all):
     # check for either supported media encoder when no arguments specified
     if encoder_prog == all:
-        r1 = check_for_mencoder("png2theora")
+        r1 = check_for_ffmpeg("png2theora")
         if r1:
             return True
-        return check_for_mencoder("mencoder")
+        return check_for_ffmpeg("ffmpeg")
 
     dirs = os.getenv('PATH', os.path.defpath).split(os.path.pathsep)
     for dir in dirs:
@@ -857,8 +858,8 @@ if not blktrace_only:
     parser.add_option("", "--legend-columns", help="Legend columns",
                         default=1, type="int")
 
-    mencoder_found = check_for_mencoder()
-    if mencoder_found:
+    ffmpeg_found = check_for_ffmpeg()
+    if ffmpeg_found:
         parser.add_option("-m", "--movie", help="Generate an IO movie",
                           default=False, action="store_true")
         parser.add_option("", "--movie-frames",
@@ -868,9 +869,6 @@ if not blktrace_only:
                           default=30)
         parser.add_option("", "--movie-cell-size",
                           help="Size in pixels of the IO cells", default=2)
-        parser.add_option("", "--movie-vbitrate",
-                          help="Mencoder vbitrate option (default 16000)",
-                          default="16000")
 
 (options,args) = parser.parse_args()
 adjust_kwargs = parse_plot_adjust(options.adjust)
@@ -897,26 +895,26 @@ if not options.trace:
     sys.exit(1)
 
 # Validate the movie parameters
-if mencoder_found and options.movie:
+if ffmpeg_found and options.movie:
     movie_name = options.output
     # Default to creating an ogg using png2theora.  This can be changed by
     # specifying an output file name that ends in mpg.
     if options.output.endswith((".mpg", ".mpeg", ".MPG", ".MPEG")):
-        if not check_for_mencoder("mencoder"):
-            print("mencoder required for encoding mpegs. Try using -o fname.ogg")
+        if not check_for_ffmpeg("ffmpeg"):
+            print("ffmpeg required for encoding mpegs. Try using -o fname.ogg")
             sys.exit(1)
-        mencoder = "mencoder"
+        ffmpeg = "ffmpeg"
     elif options.output.endswith((".ogg", ".OGG")):
-        if check_for_mencoder("png2theora"):
-            mencoder = "png2theora"
+        if check_for_ffmpeg("png2theora"):
+            ffmpeg = "png2theora"
         else:
-            # We can't get here unless mencoder is set to either mencoder or
+            # We can't get here unless ffmpeg is set to either ffmpeg or
             # png2theora, so if the encoder isn't the latter...
-            mencoder = "mencoder"
+            ffmpeg = "ffmpeg"
     elif options.output.endswith((".png")):
         # This is the path we take if no output filename is specified.
         movie_name = "trace.ogg"
-        mencoder = "png2theora"
+        ffmpeg = "png2theora"
     else:
         print("Error: please specify an output file name that ends in .ogg or .mpg")
         sys.exit(1)
@@ -1112,7 +1110,7 @@ for x in stats:
     x[3] -= xmin
     x[3] = round(x[3], 2)
 
-if mencoder_found and options.movie:
+if ffmpeg_found and options.movie:
     r = data_movie(runs[0])
     sys.exit(r)
 
